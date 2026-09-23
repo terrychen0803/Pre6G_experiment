@@ -1,0 +1,64 @@
+{
+  "schema_version": "pre6g.node-results/v1",
+  "synthetic": true,
+  "task_id": "yolo26-demo-001",
+  "nodes": [
+    {
+      "node": "worker-4090",
+      "eligible": true,
+      "exclusive_gpu": true,
+      "runtime": {
+        "status": "ready",
+        "model_version": "synthetic-demo-only",
+        "feature_schema_version": "marker-free-demo/v1",
+        "predicted_runtime_ms_per_iteration": 52.0,
+        "confidence": 0.95,
+        "ood": false
+      },
+      "power": {
+        "status": "ready",
+        "model_version": "synthetic-demo-only",
+        "feature_schema_version": "energy-features/v1",
+        "predicted_power_w": 330.0,
+        "idle_power_w": 80.0,
+        "confidence": 0.95,
+        "ood": false,
+        "missing_features": []
+      },
+      "quality": {
+        "complete_cycles": 12,
+        "netdata_samples": 15,
+        "max_netdata_gap_s": 1.05
+      }
+    },
+    {
+      "node": "worker-5090",
+      "eligible": true,
+      "exclusive_gpu": true,
+      "runtime": {
+        "status": "ready",
+        "model_version": "synthetic-demo-only",
+        "feature_schema_version": "marker-free-demo/v1",
+        "predicted_runtime_ms_per_iteration": 39.0,
+        "confidence": 0.94,
+        "ood": false
+      },
+      "power": {
+        "status": "ready",
+        "model_version": "synthetic-demo-only",
+        "feature_schema_version": "energy-features/v1",
+        "predicted_power_w": 410.0,
+        "idle_power_w": 95.0,
+        "confidence": 0.93,
+        "ood": false,
+        "missing_features": []
+      },
+      "quality": {
+        "complete_cycles": 13,
+        "netdata_samples": 15,
+        "max_netdata_gap_s": 1.03
+      }
+    }
+  ]
+}
+

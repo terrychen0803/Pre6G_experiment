@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: experiments
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pre6g-experiment-controller
+  namespace: experiments
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pre6g-experiment-controller
+  namespace: experiments
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "events", "configmaps"]
+    verbs: ["get", "list", "watch", "create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pre6g-experiment-controller
+  namespace: experiments
+subjects:
+  - kind: ServiceAccount
+    name: pre6g-experiment-controller
+    namespace: experiments
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: pre6g-experiment-controller
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ServiceAccount
+metadata:
+  name: pre6g-profile-job
+  namespace: experiments
+

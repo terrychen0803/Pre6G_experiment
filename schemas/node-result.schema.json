@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pre6g.example/schemas/node-result.schema.json",
+  "title": "Pre6G node profiling result",
+  "type": "object",
+  "required": ["node", "eligible", "exclusive_gpu", "runtime", "power", "quality"],
+  "properties": {
+    "node": {"type": "string", "minLength": 1},
+    "eligible": {"type": "boolean"},
+    "exclusive_gpu": {"type": "boolean"},
+    "runtime": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": {"enum": ["ready", "unavailable", "schema_mismatch", "rejected_ood"]},
+        "model_version": {"type": "string"},
+        "feature_schema_version": {"type": "string"},
+        "predicted_runtime_ms_per_iteration": {"type": "number", "exclusiveMinimum": 0},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "ood": {"type": "boolean"},
+        "reason": {"type": "string"}
+      }
+    },
+    "power": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": {"enum": ["ready", "unavailable", "schema_mismatch", "rejected_ood"]},
+        "model_version": {"type": "string"},
+        "feature_schema_version": {"type": "string"},
+        "predicted_power_w": {"type": "number", "minimum": 0},
+        "idle_power_w": {"type": "number", "minimum": 0},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "ood": {"type": "boolean"},
+        "missing_features": {"type": "array", "items": {"type": "string"}},
+        "reason": {"type": "string"}
+      }
+    },
+    "quality": {
+      "type": "object",
+      "required": ["complete_cycles", "netdata_samples", "max_netdata_gap_s"],
+      "properties": {
+        "complete_cycles": {"type": "integer", "minimum": 0},
+        "netdata_samples": {"type": "integer", "minimum": 0},
+        "max_netdata_gap_s": {"type": "number", "minimum": 0}
+      }
+    }
+  }
+}
+
