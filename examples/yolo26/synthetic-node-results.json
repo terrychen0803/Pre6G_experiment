@@ -1,17 +1,27 @@
 {
-  "schema_version": "pre6g.node-results/v1",
+  "schema_version": "pre6g.node-results/v2",
   "synthetic": true,
   "task_id": "yolo26-demo-001",
   "nodes": [
     {
       "node": "worker-4090",
       "eligible": true,
-      "exclusive_gpu": true,
+      "gpu_sharing": {
+        "strategy": "time-slicing",
+        "resource_name": "nvidia.com/gpu.shared",
+        "replicas_per_gpu": 4,
+        "allocated_replicas": 2,
+        "physical_gpu_uuid": "GPU-DEMO-4090",
+        "co_tenant_count": 1
+      },
       "runtime": {
         "status": "ready",
-        "model_version": "synthetic-demo-only",
-        "feature_schema_version": "marker-free-demo/v1",
+        "backend": "target-process-cuda-trace",
+        "supported_sharing_strategies": ["time-slicing"],
+        "model_version": "synthetic-trace-demo-only",
+        "feature_schema_version": "target-cuda-trace/v1",
         "predicted_runtime_ms_per_iteration": 52.0,
+        "emission_horizon_seconds": 15.0,
         "confidence": 0.95,
         "ood": false
       },
@@ -19,14 +29,21 @@
         "status": "ready",
         "model_version": "synthetic-demo-only",
         "feature_schema_version": "energy-features/v1",
-        "predicted_power_w": 330.0,
+        "target_semantics": "node-total-power",
+        "steady_power_w": 330.0,
         "idle_power_w": 80.0,
+        "observed_window_energy_j": 4875.0,
+        "integration_method": "trapezoid",
         "confidence": 0.95,
         "ood": false,
         "missing_features": []
       },
       "quality": {
         "complete_cycles": 12,
+        "target_process_identified": true,
+        "target_cuda_process_count": 1,
+        "target_cuda_context_count": 1,
+        "hardware_trace": true,
         "netdata_samples": 15,
         "max_netdata_gap_s": 1.05
       }
@@ -34,12 +51,22 @@
     {
       "node": "worker-5090",
       "eligible": true,
-      "exclusive_gpu": true,
+      "gpu_sharing": {
+        "strategy": "time-slicing",
+        "resource_name": "nvidia.com/gpu.shared",
+        "replicas_per_gpu": 4,
+        "allocated_replicas": 3,
+        "physical_gpu_uuid": "GPU-DEMO-5090",
+        "co_tenant_count": 2
+      },
       "runtime": {
         "status": "ready",
-        "model_version": "synthetic-demo-only",
-        "feature_schema_version": "marker-free-demo/v1",
+        "backend": "target-process-cuda-trace",
+        "supported_sharing_strategies": ["time-slicing"],
+        "model_version": "synthetic-trace-demo-only",
+        "feature_schema_version": "target-cuda-trace/v1",
         "predicted_runtime_ms_per_iteration": 39.0,
+        "emission_horizon_seconds": 12.0,
         "confidence": 0.94,
         "ood": false
       },
@@ -47,18 +74,24 @@
         "status": "ready",
         "model_version": "synthetic-demo-only",
         "feature_schema_version": "energy-features/v1",
-        "predicted_power_w": 410.0,
+        "target_semantics": "node-total-power",
+        "steady_power_w": 410.0,
         "idle_power_w": 95.0,
+        "observed_window_energy_j": 4860.0,
+        "integration_method": "trapezoid",
         "confidence": 0.93,
         "ood": false,
         "missing_features": []
       },
       "quality": {
         "complete_cycles": 13,
+        "target_process_identified": true,
+        "target_cuda_process_count": 1,
+        "target_cuda_context_count": 1,
+        "hardware_trace": true,
         "netdata_samples": 15,
         "max_netdata_gap_s": 1.03
       }
     }
   ]
 }
-

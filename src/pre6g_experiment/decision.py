@@ -15,16 +15,51 @@ class RankedNode:
     score: float
 
 
+SHARED_STRATEGIES = {"time-slicing", "mps", "mig-time-slicing"}
+
+
+def integrate_power_samples(samples: list[dict[str, Any]]) -> float:
+    """Integrate timestamped instantaneous power predictions with trapezoids."""
+    ordered = sorted(samples, key=lambda row: int(row["timestamp_unix_ns"]))
+    if len(ordered) < 2:
+        raise ValueError("At least two timestamped power samples are required")
+    energy_j = 0.0
+    for left, right in zip(ordered, ordered[1:]):
+        delta_s = (
+            int(right["timestamp_unix_ns"]) - int(left["timestamp_unix_ns"])
+        ) / 1e9
+        if delta_s <= 0:
+            raise ValueError("Power sample timestamps must be strictly increasing")
+        left_w = float(left["predicted_power_w"])
+        right_w = float(right["predicted_power_w"])
+        if left_w < 0 or right_w < 0:
+            raise ValueError("Power predictions must be non-negative")
+        energy_j += (left_w + right_w) * 0.5 * delta_s
+    return energy_j
+
+
 def _reject_reason(item: dict[str, Any], min_confidence: float) -> str | None:
     runtime = item.get("runtime") or {}
     power = item.get("power") or {}
     quality = item.get("quality") or {}
+    sharing = item.get("gpu_sharing") or {}
     if not item.get("eligible", False):
         return "node marked ineligible"
-    if not item.get("exclusive_gpu", False):
-        return "GPU is not exclusive"
     if runtime.get("status") != "ready" or power.get("status") != "ready":
         return "runtime or power model is not ready"
+    strategy = sharing.get("strategy")
+    if strategy not in {"none", *SHARED_STRATEGIES}:
+        return "GPU sharing strategy is missing or unsupported"
+    if strategy in SHARED_STRATEGIES:
+        supported = set(runtime.get("supported_sharing_strategies") or [])
+        if runtime.get("backend") != "target-process-cuda-trace":
+            return "shared GPU requires target-process CUDA trace runtime backend"
+        if strategy not in supported:
+            return "runtime model does not declare support for this sharing strategy"
+        if not quality.get("target_process_identified", False):
+            return "target CUDA process was not identified"
+        if not quality.get("hardware_trace", False):
+            return "shared GPU trace is not a CUDA hardware trace"
     if runtime.get("ood", True) or power.get("ood", True):
         return "runtime or power model rejected the sample as OOD"
     if float(runtime.get("confidence", 0)) < min_confidence:
@@ -41,7 +76,8 @@ def _reject_reason(item: dict[str, Any], min_confidence: float) -> str | None:
         return "Netdata gap exceeds two seconds"
     if float(runtime.get("predicted_runtime_ms_per_iteration", 0)) <= 0:
         return "invalid runtime prediction"
-    if float(power.get("predicted_power_w", -1)) < 0:
+    steady_power = power.get("steady_power_w", power.get("predicted_power_w", -1))
+    if float(steady_power) < 0:
         return "invalid power prediction"
     return None
 
@@ -60,7 +96,11 @@ def rank_nodes(
             rejected[node] = reason
             continue
         runtime_ms = float(item["runtime"]["predicted_runtime_ms_per_iteration"])
-        predicted_power = float(item["power"]["predicted_power_w"])
+        predicted_power = float(
+            item["power"].get(
+                "steady_power_w", item["power"].get("predicted_power_w")
+            )
+        )
         idle_power = float(item["power"].get("idle_power_w", 0))
         incremental_power = max(0.0, predicted_power - idle_power)
         energy_per_iteration = incremental_power * runtime_ms / 1000.0
@@ -119,4 +159,3 @@ def production_job(source: dict[str, Any], selected_node: str) -> dict[str, Any]
         )
     selector["kubernetes.io/hostname"] = selected_node
     return result
-

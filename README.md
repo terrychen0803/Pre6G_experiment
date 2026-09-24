@@ -15,7 +15,7 @@ User batch/v1 Job
   → validate / estimate work units
   → discover eligible GPU nodes
   → one pinned Profile Job per node
-  → Nsight marker-free features + timestamp-aligned Netdata features
+  → target-process CUDA trace features + timestamp-aligned Netdata features
   → runtime adapter + power adapter
   → energy/confidence/OOD gate
   → rank eligible nodes
@@ -30,6 +30,7 @@ User batch/v1 Job
 - [模型與 iteration 未定時的處理](docs/model-and-work-estimation.md)
 - [Netdata feature contract](docs/netdata-contract.md)
 - [YOLO26 具體範例](docs/yolo26-walkthrough.md)
+- [High-load trace 實測依據](docs/evidence/high-load-trace-results.md)
 
 ## 本機示範
 
@@ -72,13 +73,13 @@ kubectl apply --dry-run=server \
 - 使用者既有的 energy model 權重。
 - NVIDIA driver、Nsight Systems 或 Netdata image。
 - 完整 Kubernetes controller reconcile loop。
-- shared-GPU contention 下的可信 marker-free runtime prediction。
+- 尚未定版的 production runtime model bundle；目前 high-load trace 實驗為候選模型依據。
 
 ## 安全原則
 
-- 正式比較預設要求獨占 `nvidia.com/gpu: 1`。
+- Shared GPU 是正式支援情境；shared mode 必須使用 target-process CUDA trace backend，不能回退到 device-wide GPU Metrics period detector。
+- Profile/production Job 可請求 `nvidia.com/gpu.shared: 1`，並記錄 sharing strategy、replicas、physical GPU UUID 與 co-tenant state。
 - 任一模型 unavailable、schema mismatch、OOD 或 confidence 不足時，停止自動排名。
 - 不從不完整 YAML 猜出一個看似精確的總 iteration 數。
 - Profile Job 與 production Job 使用不同名稱；不修改或直接執行原始 Job。
 - 所有 artifacts 以 `task_id/node/attempt` 分區，並記錄 checksum 與時間窗口。
-

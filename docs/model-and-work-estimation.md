@@ -7,6 +7,8 @@
 ```json
 {
   "status": "ready",
+  "backend": "target-process-cuda-trace",
+  "supported_sharing_strategies": ["time-slicing"],
   "model_version": "...",
   "feature_schema_version": "...",
   "predicted_runtime_ms_per_iteration": 42.1,
@@ -84,7 +86,9 @@ T_total_s = T_startup_s
           + N_steady × T_predicted_iter_s
           + T_finalize_s
 
-E_total_j = P_predicted_w × T_total_s
+E_observed_window_j = trapezoid_integral(P_predicted(t), t)
+
+E_total_j ≈ E_startup_j + P_steady_w × T_steady_s + E_finalize_j
 
 E_incremental_j = max(0, P_predicted_w - P_idle_w) × T_total_s
 ```
@@ -100,9 +104,10 @@ E_incremental_j = max(0, P_predicted_w - P_idle_w) × T_total_s
 - schema versions 相符
 - `ood=false`
 - confidence 達門檻
-- marker-free detector 至少觀察三個完整 cycles
+- target-process trace detector 至少觀察三個完整 cycles
 - Netdata window samples 達門檻且無過大 gap
 - 必要 feature 無缺失
-- GPU 為獨占模式，或模型明確支援 contention
+- shared mode 使用 `target-process-cuda-trace`，且 model manifest 明確列出該 sharing strategy
+- target CUDA process 已辨識、trace 為 hardware trace
+- sharing state（strategy、replicas、physical GPU、co-tenants）完整記錄
 - 可計算 total work，或使用者明確允許 per-iteration ranking
-

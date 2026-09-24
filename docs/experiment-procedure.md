@@ -3,7 +3,7 @@
 ## Phase 0：凍結契約
 
 1. 保存原始 Job、container image digest、dataset manifest/hash。
-2. 記錄候選 GPU node 與 `nvidia.com/gpu` capacity。
+2. 記錄候選 GPU node 的 sharing strategy、resource name、replicas、physical GPU UUID 與目前 allocation。
 3. 凍結 Nsight version、metric set、frequency、feature schema。
 4. 保存 runtime/power model manifest；未定版時標記 `profile-only`。
 5. 定義 power model 輸出是 node total watts、task incremental watts 或 total joules。
@@ -17,7 +17,7 @@ kubectl get runtimeclass
 kubectl get pods -A -o wide
 ```
 
-逐 node 驗證 CUDA、Nsight environment、GPU metrics permission、時鐘同步與 object-store connectivity。正式比較使用 `nvidia.com/gpu: 1`，不使用 shared GPU 結果宣稱性能或能耗優劣。
+逐 node 驗證 CUDA、Nsight environment、CUDA hardware trace、時鐘同步與 object-store connectivity。Shared GPU 是正式 deployment domain；Profile Job 與 production Job 必須使用相同 sharing strategy/resource contract。
 
 ## Phase 2：Netdata audit
 
@@ -46,21 +46,22 @@ python -m pre6g_experiment inspect --job user-job.yaml
 Profile Job：
 
 - pin 到一個 node。
-- request 一張獨占 GPU。
+- request 一個 shared GPU replica，例如 `nvidia.com/gpu.shared: 1`。
 - `backoffLimit: 0`。
 - 設定 bounded timeout。
 - 用 Nsight 直接 launch 原始 command。
-- 預熱後收集至少三個完整 cycles，建議 10～15 秒。
+- 使用 target-process CUDA kernel trace；在 7/9/12/15/20/30 秒做 adaptive confidence/stability check。
+- 預熱後至少三個完整 cycles；目前 high-load 實測平均 emission horizon 13.54 秒，預設上限可先設 30 秒。
 - collector 驗證 report 並上傳。
 
 線上模式可平行跑所有 candidate nodes；研究評估另做隨機節點順序、每節點至少三次的 sequential repeats。
 
 ## Phase 5：Feature extraction
 
-1. Marker-free Nsight extractor 產生 runtime model input。
+1. 從 target process 的 CUDA kernel start timestamp 與 short-name ID 產生 trace runtime input。
 2. 用同一份 timestamp metadata 查 Netdata pre/workload windows。
 3. 正規化 `°C`、MB、W 與百分比欄名/單位。
-4. 依 power model manifest aggregation。
+4. 逐 timestamp 執行 energy model，保存 P(t)，以梯形積分計算 profiling-window energy，再取得 steady power。
 5. 執行 missing、range、sample-count、gap、schema 與 OOD checks。
 
 ## Phase 6：Prediction 與 ranking
@@ -126,6 +127,6 @@ kubectl apply --dry-run=server -f production-job.yaml
 | runtime model unavailable | profile-only，不排名 |
 | power feature 缺失 | 不做 energy ranking |
 | total iterations unknown | per-iteration result；預設不自動部署 |
-| GPU contention 超標 | retry、排除，或使用明確支援 contention 的模型 |
+| shared GPU target process 無法辨識 | 排除該次 profile，不得改用 device-wide GPU Metrics period |
+| sharing state 在 ranking 前顯著漂移 | prediction 失效；重新 profile 或改選下一節點 |
 | prediction tie | 使用政策型次要條件或回到 default scheduler |
-

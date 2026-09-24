@@ -1,21 +1,38 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://pre6g.example/schemas/node-result.schema.json",
-  "title": "Pre6G node profiling result",
+  "title": "Pre6G shared-GPU node profiling result v2",
   "type": "object",
-  "required": ["node", "eligible", "exclusive_gpu", "runtime", "power", "quality"],
+  "required": ["node", "eligible", "gpu_sharing", "runtime", "power", "quality"],
   "properties": {
     "node": {"type": "string", "minLength": 1},
     "eligible": {"type": "boolean"},
-    "exclusive_gpu": {"type": "boolean"},
+    "gpu_sharing": {
+      "type": "object",
+      "required": ["strategy", "resource_name"],
+      "properties": {
+        "strategy": {"enum": ["none", "time-slicing", "mps", "mig-time-slicing"]},
+        "resource_name": {"type": "string", "minLength": 1},
+        "replicas_per_gpu": {"type": "integer", "minimum": 1},
+        "allocated_replicas": {"type": "integer", "minimum": 0},
+        "physical_gpu_uuid": {"type": "string"},
+        "co_tenant_count": {"type": "integer", "minimum": 0}
+      }
+    },
     "runtime": {
       "type": "object",
       "required": ["status"],
       "properties": {
         "status": {"enum": ["ready", "unavailable", "schema_mismatch", "rejected_ood"]},
+        "backend": {"enum": ["target-process-cuda-trace", "device-gpu-metrics", "workload-native"]},
+        "supported_sharing_strategies": {
+          "type": "array",
+          "items": {"enum": ["none", "time-slicing", "mps", "mig-time-slicing"]}
+        },
         "model_version": {"type": "string"},
         "feature_schema_version": {"type": "string"},
         "predicted_runtime_ms_per_iteration": {"type": "number", "exclusiveMinimum": 0},
+        "emission_horizon_seconds": {"type": "number", "exclusiveMinimum": 0},
         "confidence": {"type": "number", "minimum": 0, "maximum": 1},
         "ood": {"type": "boolean"},
         "reason": {"type": "string"}
@@ -28,8 +45,11 @@
         "status": {"enum": ["ready", "unavailable", "schema_mismatch", "rejected_ood"]},
         "model_version": {"type": "string"},
         "feature_schema_version": {"type": "string"},
-        "predicted_power_w": {"type": "number", "minimum": 0},
+        "target_semantics": {"enum": ["node-total-power", "task-incremental-power"]},
+        "steady_power_w": {"type": "number", "minimum": 0},
         "idle_power_w": {"type": "number", "minimum": 0},
+        "observed_window_energy_j": {"type": "number", "minimum": 0},
+        "integration_method": {"enum": ["trapezoid"]},
         "confidence": {"type": "number", "minimum": 0, "maximum": 1},
         "ood": {"type": "boolean"},
         "missing_features": {"type": "array", "items": {"type": "string"}},
@@ -38,13 +58,22 @@
     },
     "quality": {
       "type": "object",
-      "required": ["complete_cycles", "netdata_samples", "max_netdata_gap_s"],
+      "required": [
+        "complete_cycles",
+        "target_process_identified",
+        "hardware_trace",
+        "netdata_samples",
+        "max_netdata_gap_s"
+      ],
       "properties": {
         "complete_cycles": {"type": "integer", "minimum": 0},
+        "target_process_identified": {"type": "boolean"},
+        "target_cuda_process_count": {"type": "integer", "minimum": 0},
+        "target_cuda_context_count": {"type": "integer", "minimum": 0},
+        "hardware_trace": {"type": "boolean"},
         "netdata_samples": {"type": "integer", "minimum": 0},
         "max_netdata_gap_s": {"type": "number", "minimum": 0}
       }
     }
   }
 }
-

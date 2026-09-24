@@ -43,11 +43,11 @@ spec:
             requests:
               cpu: "4"
               memory: 8Gi
-              nvidia.com/gpu: "1"
+              nvidia.com/gpu.shared: "1"
             limits:
               cpu: "8"
               memory: 16Gi
-              nvidia.com/gpu: "1"
+              nvidia.com/gpu.shared: "1"
           volumeMounts:
             - name: dataset
               mountPath: /data
@@ -56,4 +56,3 @@ spec:
         - name: dataset
           persistentVolumeClaim:
             claimName: yolo26-dataset
-

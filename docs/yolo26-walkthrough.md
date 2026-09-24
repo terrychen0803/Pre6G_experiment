@@ -68,6 +68,15 @@ python scripts/audit_netdata.py \
 
 ## 4. 建立兩個 Profile Jobs
 
+範例 Job 已請求：
+
+```yaml
+limits:
+  nvidia.com/gpu.shared: "1"
+```
+
+若實際 cluster 未使用 `.shared` rename，改成 cluster 真正 advertise 的 resource name，但仍要在 node result 記錄 `strategy=time-slicing`。
+
 對每個 node 使用 Pre6G_profiling builder：
 
 ```bash
@@ -96,6 +105,10 @@ kubectl apply -f generated/yolo26-profile-worker-5090.yaml
 ```
 
 ## 5. Runtime 與 power prediction
+
+Shared-mode runtime extractor 使用 target YOLO process 的 CUDA kernel events，不使用 device-wide GPU Metrics。根據現有 high-load RTX5090 實驗：adaptive detector 24/24 coverage、平均 emission 13.54 秒、prefix period mean/P90 APE 1.47%/3.72%；trace runtime model LOOW MAPE 7.42%。完整限制見 [實測依據](evidence/high-load-trace-results.md)。
+
+Energy adapter 對 Netdata 的每個 timestamp 將 18 個 features 餵入模型，得到 P(t)，以梯形積分算出 dry-run window energy；ranking 使用 steady power 和預測 runtime 外推正式任務能量。
 
 真正的 collector 應輸出 [node-result schema](../schemas/node-result.schema.json)。目前 runtime model 還在修改時，輸出：
 
@@ -155,4 +168,3 @@ kubectl wait --for=condition=complete \
 ```
 
 正式 Job 完成後，用相同 Netdata schema 計算 ground truth，再比較預測的 runtime、power、energy 和節點排名。
-

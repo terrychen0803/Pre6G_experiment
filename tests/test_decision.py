@@ -1,6 +1,10 @@
 import unittest
 
-from pre6g_experiment.decision import production_job, rank_nodes
+from pre6g_experiment.decision import (
+    integrate_power_samples,
+    production_job,
+    rank_nodes,
+)
 from pre6g_experiment.work import estimate_work
 
 
@@ -38,16 +42,22 @@ class DecisionTests(unittest.TestCase):
             return {
                 "node": name,
                 "eligible": True,
-                "exclusive_gpu": True,
+                "gpu_sharing": {
+                    "strategy": "time-slicing",
+                    "resource_name": "nvidia.com/gpu.shared",
+                    "replicas_per_gpu": 4,
+                },
                 "runtime": {
                     "status": "ready",
+                    "backend": "target-process-cuda-trace",
+                    "supported_sharing_strategies": ["time-slicing"],
                     "predicted_runtime_ms_per_iteration": runtime,
                     "confidence": confidence,
                     "ood": False,
                 },
                 "power": {
                     "status": "ready",
-                    "predicted_power_w": power,
+                    "steady_power_w": power,
                     "idle_power_w": idle,
                     "confidence": confidence,
                     "ood": False,
@@ -55,6 +65,8 @@ class DecisionTests(unittest.TestCase):
                 },
                 "quality": {
                     "complete_cycles": 10,
+                    "target_process_identified": True,
+                    "hardware_trace": True,
                     "netdata_samples": 12,
                     "max_netdata_gap_s": 1.1,
                 },
@@ -67,6 +79,14 @@ class DecisionTests(unittest.TestCase):
         self.assertFalse(rejected)
         self.assertEqual(ranked[0].node, "b")
         self.assertAlmostEqual(ranked[0].total_energy_j, 7862.4)
+
+    def test_trapezoid_power_integration(self):
+        samples = [
+            {"timestamp_unix_ns": 0, "predicted_power_w": 100.0},
+            {"timestamp_unix_ns": 1_000_000_000, "predicted_power_w": 200.0},
+            {"timestamp_unix_ns": 2_000_000_000, "predicted_power_w": 300.0},
+        ]
+        self.assertAlmostEqual(integrate_power_samples(samples), 400.0)
 
     def test_render_pins_selected_node(self):
         source = {

@@ -78,6 +78,18 @@ application_end
 
 不要由部署程式自行選 mean 或 latest。
 
+## 瞬時功率與能量
+
+Energy adapter 對每一筆對齊後資料執行：
+
+```text
+[18 features, corresponding time] → predicted_power_w(t)
+```
+
+`corresponding time` 的 encoding 必須和訓練一致；若 timestamp 只用來對齊，就不能直接當模型特徵。Collector 保存完整的 `timestamp_unix_ns, predicted_power_w` 序列，以梯形積分得到 observed-window Joules，再以 steady-window power 與 runtime prediction 外推 production energy。
+
+如果 target 是整台 node 的外部量測功率，`GPU Power(W)` 可作為輸入；如果 target 本身就是 NVIDIA GPU Power，則此欄會造成 target leakage，必須從模型輸入移除。
+
 ## Readiness audit
 
 使用：
@@ -89,4 +101,3 @@ python scripts/audit_netdata.py \
 ```
 
 工具會檢查 system charts、GPU contexts、temperature、Top CPU 與 Top GPU，並以非零 exit code 表示有必要 feature 缺失。
-
