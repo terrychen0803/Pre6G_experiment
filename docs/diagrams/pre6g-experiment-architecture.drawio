@@ -1,0 +1,131 @@
+<mxfile host="app.diagrams.net" modified="2026-09-26T00:00:00.000Z" agent="Codex" version="24.7.17">
+  <diagram id="pre6g-architecture" name="Pre6G Experiment Architecture">
+    <mxGraphModel dx="1800" dy="1100" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1920" pageHeight="1200" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <mxCell id="title" value="&lt;b&gt;Pre6G k3s 能耗感知部署實驗平台&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:14px&quot;&gt;固定 120 秒 target-process profiling → 離線週期偵測 → Runtime / Energy 預測 → 最省電節點正式部署&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#16324F;strokeColor=#16324F;fontColor=#FFFFFF;fontSize=24;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="30" y="20" width="1800" height="70" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="lane-control" value="&lt;b&gt;A. k3s Control Plane&lt;/b&gt;" style="swimlane;horizontal=0;startSize=34;rounded=1;html=1;fillColor=#EAF2F8;swimlaneFillColor=#F8FBFD;strokeColor=#5B9BD5;fontColor=#1F4E78;fontSize=16;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="30" y="110" width="430" height="870" as="geometry"/>
+        </mxCell>
+        <mxCell id="lane-worker" value="&lt;b&gt;B. Candidate GPU Workers（每個節點平行）&lt;/b&gt;" style="swimlane;horizontal=0;startSize=34;rounded=1;html=1;fillColor=#FFF2CC;swimlaneFillColor=#FFFDF5;strokeColor=#D6B656;fontColor=#7F6000;fontSize=16;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="480" y="110" width="520" height="870" as="geometry"/>
+        </mxCell>
+        <mxCell id="lane-analysis" value="&lt;b&gt;C. Artifacts、Feature 與 Models&lt;/b&gt;" style="swimlane;horizontal=0;startSize=34;rounded=1;html=1;fillColor=#E4DFEC;swimlaneFillColor=#FAF8FC;strokeColor=#8064A2;fontColor=#4F3C68;fontSize=16;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1020" y="110" width="470" height="870" as="geometry"/>
+        </mxCell>
+        <mxCell id="lane-production" value="&lt;b&gt;D. Decision 與 Production&lt;/b&gt;" style="swimlane;horizontal=0;startSize=34;rounded=1;html=1;fillColor=#E2F0D9;swimlaneFillColor=#F8FCF5;strokeColor=#70AD47;fontColor=#375623;fontSize=16;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1510" y="110" width="320" height="870" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="user-job" value="&lt;b&gt;1. 使用者提交 Job YAML&lt;/b&gt;&lt;br&gt;image / command / args&lt;br&gt;CPU、Memory、shared GPU&lt;br&gt;dataset / volumes" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#5B9BD5;strokeWidth=2;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="75" y="165" width="330" height="105" as="geometry"/>
+        </mxCell>
+        <mxCell id="inspect" value="&lt;b&gt;2. Validate / Inspect&lt;/b&gt;&lt;br&gt;驗證 batch/v1 Job&lt;br&gt;找 application container&lt;br&gt;從 YAML 推算 total iterations&lt;br&gt;不足時標記 unknown" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D9EAF7;strokeColor=#5B9BD5;strokeWidth=2;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="75" y="310" width="330" height="115" as="geometry"/>
+        </mxCell>
+        <mxCell id="discover" value="&lt;b&gt;3. Discover Candidate Nodes&lt;/b&gt;&lt;br&gt;Node Ready / taints&lt;br&gt;GPU sharing resource / UUID&lt;br&gt;replicas、allocation、co-tenants&lt;br&gt;Netdata child readiness" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D9EAF7;strokeColor=#5B9BD5;strokeWidth=2;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="75" y="465" width="330" height="125" as="geometry"/>
+        </mxCell>
+        <mxCell id="builder" value="&lt;b&gt;4. Profile Job Builder&lt;/b&gt;&lt;br&gt;從原始 Job deep-copy&lt;br&gt;每個 node 建立獨立 Job&lt;br&gt;加入 nodeSelector / wrapper&lt;br&gt;不覆寫原始 Job" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D9EAF7;strokeColor=#5B9BD5;strokeWidth=2;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="75" y="630" width="330" height="125" as="geometry"/>
+        </mxCell>
+        <mxCell id="server-dryrun" value="&lt;b&gt;5. Kubernetes 驗證與建立&lt;/b&gt;&lt;br&gt;kubectl apply --dry-run=server&lt;br&gt;通過後建立所有 Profile Jobs&lt;br&gt;候選節點可平行執行" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D9EAF7;strokeColor=#5B9BD5;strokeWidth=2;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="75" y="795" width="330" height="110" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="profile-job" value="&lt;b&gt;6. Pinned Profile Job / Node&lt;/b&gt;&lt;br&gt;nodeSelector = candidate node&lt;br&gt;nvidia.com/gpu.shared: 1&lt;br&gt;backoffLimit: 0&lt;br&gt;activeDeadlineSeconds: 300" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;strokeWidth=2;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="530" y="165" width="420" height="115" as="geometry"/>
+        </mxCell>
+        <mxCell id="profile-pod" value="&lt;b&gt;7. Profile Pod&lt;/b&gt;" style="swimlane;horizontal=1;startSize=30;rounded=1;html=1;fillColor=#FCE4D6;swimlaneFillColor=#FFFBF8;strokeColor=#ED7D31;fontColor=#843C0C;fontSize=15;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="520" y="320" width="440" height="370" as="geometry"/>
+        </mxCell>
+        <mxCell id="profiler" value="&lt;b&gt;Profiler / Application Container&lt;/b&gt;&lt;br&gt;nsys profile --trace=cuda,nvtx&lt;br&gt;--sample=none --cpuctxsw=none&lt;br&gt;-- original-command [args]&lt;br&gt;&lt;br&gt;&lt;b&gt;固定 profiling 120 秒&lt;/b&gt;&lt;br&gt;提前完成則保存實際長度" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FCE4D6;strokeColor=#ED7D31;strokeWidth=2;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="545" y="370" width="185" height="210" as="geometry"/>
+        </mxCell>
+        <mxCell id="collector" value="&lt;b&gt;Collector Sidecar&lt;/b&gt;&lt;br&gt;等待 capture.complete&lt;br&gt;驗證 report integrity&lt;br&gt;nsys export → SQLite&lt;br&gt;抽取 features / timestamps&lt;br&gt;上傳 artifacts" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FCE4D6;strokeColor=#ED7D31;strokeWidth=2;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="750" y="370" width="185" height="210" as="geometry"/>
+        </mxCell>
+        <mxCell id="artifact-volume" value="&lt;b&gt;Shared artifact volume&lt;/b&gt;&lt;br&gt;.nsys-rep / SQLite / logs&lt;br&gt;completion marker" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="635" y="600" width="210" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="netdata" value="&lt;b&gt;8. Netdata Child（既有 DaemonSet）&lt;/b&gt;&lt;br&gt;持續監控 node / CPU / GPU / process&lt;br&gt;不隨 Profile Job 啟停&lt;br&gt;依 absolute timestamps 查歷史資料" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E2F0D9;strokeColor=#70AD47;strokeWidth=2;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="530" y="735" width="420" height="115" as="geometry"/>
+        </mxCell>
+        <mxCell id="parallel-note" value="worker-4090 / worker-5090 / ...&lt;br&gt;每個候選節點重複步驟 6～8" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="610" y="875" width="260" height="65" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="artifact-store" value="&lt;b&gt;9. Artifact Store&lt;/b&gt;&lt;br&gt;MinIO / S3 / RWX / NFS&lt;br&gt;task-id / node / attempt&lt;br&gt;report、SQLite、metadata、checksums" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;fillColor=#E4DFEC;strokeColor=#8064A2;strokeWidth=2;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="1070" y="155" width="370" height="105" as="geometry"/>
+        </mxCell>
+        <mxCell id="trace-extract" value="&lt;b&gt;10A. Target-process Trace Pipeline&lt;/b&gt;&lt;br&gt;定位 globalPid / contextId&lt;br&gt;確認 CUDA hardware trace&lt;br&gt;第一個 target kernel 為 prefix 起點&lt;br&gt;7/9/12/15/20/30 秒離線 detector&lt;br&gt;30 秒區段檢查 period/load drift" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E4DFEC;strokeColor=#8064A2;strokeWidth=2;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="1070" y="305" width="370" height="150" as="geometry"/>
+        </mxCell>
+        <mxCell id="netdata-features" value="&lt;b&gt;10B. Netdata Feature Pipeline&lt;/b&gt;&lt;br&gt;依 profiling timestamps 查詢&lt;br&gt;整理固定 18 features&lt;br&gt;schema / unit / missing / gap checks&lt;br&gt;產生 timestamped feature vectors" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E2F0D9;strokeColor=#70AD47;strokeWidth=2;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="1070" y="495" width="370" height="125" as="geometry"/>
+        </mxCell>
+        <mxCell id="runtime-model" value="&lt;b&gt;11A. Runtime Model&lt;/b&gt;&lt;br&gt;短 prefix trace features&lt;br&gt;→ ms / iteration&lt;br&gt;→ total runtime + confidence / OOD" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D9EAD3;strokeColor=#6AA84F;strokeWidth=2;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="1070" y="665" width="175" height="125" as="geometry"/>
+        </mxCell>
+        <mxCell id="energy-model" value="&lt;b&gt;11B. Energy Model&lt;/b&gt;&lt;br&gt;18 features + time&lt;br&gt;→ P(t)&lt;br&gt;→ trapezoid integration&lt;br&gt;→ total energy" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D9EAD3;strokeColor=#6AA84F;strokeWidth=2;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="1265" y="665" width="175" height="125" as="geometry"/>
+        </mxCell>
+        <mxCell id="quality-gate" value="&lt;b&gt;12. Quality / OOD Gate&lt;/b&gt;&lt;br&gt;target process、hardware trace&lt;br&gt;≥3 cycles、confidence、drift&lt;br&gt;Netdata samples / gaps / missing&lt;br&gt;失敗節點保留 artifact，但不排名" style="rhombus;whiteSpace=wrap;html=1;fillColor=#F4CCCC;strokeColor=#CC0000;strokeWidth=2;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="1110" y="830" width="290" height="125" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="rank" value="&lt;b&gt;13. 跨節點排名&lt;/b&gt;&lt;br&gt;預測 total runtime / energy&lt;br&gt;加入 uncertainty penalty&lt;br&gt;選出最低能耗 eligible node" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E2F0D9;strokeColor=#70AD47;strokeWidth=2;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="1550" y="200" width="240" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="all-fail" value="&lt;b&gt;證據不足 / 全部失敗&lt;/b&gt;&lt;br&gt;profile-only 或停止&lt;br&gt;不偽造最佳節點" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F4CCCC;strokeColor=#CC0000;strokeWidth=2;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="1550" y="370" width="240" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="production-builder" value="&lt;b&gt;14. Production Job Builder&lt;/b&gt;&lt;br&gt;再次 deep-copy 原始 Job&lt;br&gt;移除 Nsight / collector / timeout&lt;br&gt;加入 selected nodeSelector" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E2F0D9;strokeColor=#70AD47;strokeWidth=2;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="1550" y="510" width="240" height="115" as="geometry"/>
+        </mxCell>
+        <mxCell id="production-run" value="&lt;b&gt;15. 正式部署與執行&lt;/b&gt;&lt;br&gt;相同 shared-GPU contract&lt;br&gt;不啟用 Nsight&lt;br&gt;在選定節點執行完整 Job" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#C6E0B4;strokeColor=#548235;strokeWidth=3;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="1550" y="680" width="240" height="115" as="geometry"/>
+        </mxCell>
+        <mxCell id="ground-truth" value="&lt;b&gt;16. Ground Truth / Feedback&lt;/b&gt;&lt;br&gt;實際 runtime、P(t)、energy&lt;br&gt;prediction error / ranking regret&lt;br&gt;保存供模型再訓練與校正" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E2F0D9;strokeColor=#70AD47;strokeWidth=2;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="1550" y="845" width="240" height="105" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#5B9BD5;strokeWidth=2;endArrow=block;endFill=1;" edge="1" parent="1" source="user-job" target="inspect"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#5B9BD5;strokeWidth=2;endArrow=block;endFill=1;" edge="1" parent="1" source="inspect" target="discover"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#5B9BD5;strokeWidth=2;endArrow=block;endFill=1;" edge="1" parent="1" source="discover" target="builder"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#5B9BD5;strokeWidth=2;endArrow=block;endFill=1;" edge="1" parent="1" source="builder" target="server-dryrun"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e5" value="每個 node 一份" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#D6B656;strokeWidth=3;endArrow=block;endFill=1;fontSize=12;" edge="1" parent="1" source="server-dryrun" target="profile-job"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ED7D31;strokeWidth=2;endArrow=block;endFill=1;" edge="1" parent="1" source="profile-job" target="profile-pod"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e7" value="report" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ED7D31;strokeWidth=2;endArrow=block;endFill=1;fontSize=11;" edge="1" parent="1" source="profiler" target="artifact-volume"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e8" value="read / export" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ED7D31;strokeWidth=2;endArrow=block;endFill=1;fontSize=11;" edge="1" parent="1" source="artifact-volume" target="collector"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e9" value="timestamps / history query" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;strokeColor=#70AD47;strokeWidth=2;endArrow=block;endFill=1;fontSize=11;" edge="1" parent="1" source="collector" target="netdata"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e10" value="upload" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#8064A2;strokeWidth=3;endArrow=block;endFill=1;fontSize=12;" edge="1" parent="1" source="collector" target="artifact-store"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e11" value="trace / SQLite" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#8064A2;strokeWidth=2;endArrow=block;endFill=1;fontSize=11;" edge="1" parent="1" source="artifact-store" target="trace-extract"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e12" value="timestamps" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#8064A2;strokeWidth=2;endArrow=block;endFill=1;fontSize=11;" edge="1" parent="1" source="artifact-store" target="netdata-features"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e13" value="18 features" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;strokeColor=#70AD47;strokeWidth=2;endArrow=block;endFill=1;fontSize=11;" edge="1" parent="1" source="netdata" target="netdata-features"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e14" value="trace features" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#6AA84F;strokeWidth=2;endArrow=block;endFill=1;fontSize=11;" edge="1" parent="1" source="trace-extract" target="runtime-model"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e15" value="features + time" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#6AA84F;strokeWidth=2;endArrow=block;endFill=1;fontSize=11;" edge="1" parent="1" source="netdata-features" target="energy-model"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e16" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#CC0000;strokeWidth=2;endArrow=block;endFill=1;" edge="1" parent="1" source="runtime-model" target="quality-gate"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e17" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#CC0000;strokeWidth=2;endArrow=block;endFill=1;" edge="1" parent="1" source="energy-model" target="quality-gate"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e18" value="eligible node-results" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#70AD47;strokeWidth=3;endArrow=block;endFill=1;fontSize=12;" edge="1" parent="1" source="quality-gate" target="rank"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e19" value="none" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#CC0000;strokeWidth=2;endArrow=block;endFill=1;fontSize=12;" edge="1" parent="1" source="quality-gate" target="all-fail"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e20" value="selected node" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#70AD47;strokeWidth=3;endArrow=block;endFill=1;fontSize=12;" edge="1" parent="1" source="rank" target="production-builder"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e21" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#548235;strokeWidth=3;endArrow=block;endFill=1;" edge="1" parent="1" source="production-builder" target="production-run"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e22" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#548235;strokeWidth=2;endArrow=block;endFill=1;" edge="1" parent="1" source="production-run" target="ground-truth"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e23" value="feedback artifacts" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;strokeColor=#8064A2;strokeWidth=2;endArrow=block;endFill=1;fontSize=11;" edge="1" parent="1" source="ground-truth" target="artifact-store"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <mxCell id="legend" value="&lt;b&gt;圖例&lt;/b&gt;　藍：控制平面　黃／橘：候選節點 Dry-run　紫：artifact／trace　綠：模型與正式部署　紅：品質失敗路徑　虛線：監控／回饋資料" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F2F2F2;strokeColor=#7F7F7F;fontSize=13;align=center;" vertex="1" parent="1">
+          <mxGeometry x="30" y="1010" width="1800" height="55" as="geometry"/>
+        </mxCell>
+        <mxCell id="note" value="&lt;b&gt;重要：&lt;/b&gt;目前 repository 已定義此架構與資料契約；Profile Job Builder、collector/runtime adapter 與 production controller 仍需依此圖實作。Netdata child 是長期服務，不是 per-job sidecar。" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="300" y="1090" width="1260" height="65" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

@@ -28,6 +28,7 @@ User batch/v1 Job
 詳細設計見：
 
 - [系統架構](docs/architecture.md)
+- [可匯入 draw.io 的完整架構圖](docs/diagrams/pre6g-experiment-architecture.drawio)
 - [完整實驗程序](docs/experiment-procedure.md)
 - [Dry-run Profile Job 部署](docs/dry-run-deployment.md)
 - [模型與 iteration 未定時的處理](docs/model-and-work-estimation.md)
