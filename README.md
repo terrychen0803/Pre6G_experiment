@@ -33,6 +33,7 @@ User batch/v1 Job
 - [模型與 iteration 未定時的處理](docs/model-and-work-estimation.md)
 - [Netdata feature contract](docs/netdata-contract.md)
 - [YOLO26 具體範例](docs/yolo26-walkthrough.md)
+- [實際 k3s 叢集基線與 RTX 多節點 readiness](docs/cluster-baseline.md)
 - [High-load trace 實測依據](docs/evidence/high-load-trace-results.md)
 
 ## 本機示範
