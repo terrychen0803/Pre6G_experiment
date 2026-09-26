@@ -108,6 +108,8 @@ kubectl apply -f generated/yolo26-profile-worker-5090.yaml
 
 Shared-mode runtime extractor 使用 target YOLO process 的 CUDA kernel events，不使用 device-wide GPU Metrics。根據現有 high-load RTX5090 實驗：adaptive detector 24/24 coverage、平均 emission 13.54 秒、prefix period mean/P90 APE 1.47%/3.72%；trace runtime model LOOW MAPE 7.42%。完整限制見 [實測依據](evidence/high-load-trace-results.md)。
 
+平台執行時不在 13.54 秒提早停止。兩個節點都從 Nsight launch 原始 application 起固定 profiling 120 秒，wall-clock timeout 300 秒；完成 `.nsys-rep` 與 SQLite 後才找出第一個 target CUDA kernel、離線跑 7/9/12/15/20/30 秒 detector，並用可用的後續 30 秒區段檢查 shared-load drift。這保留既有短 prefix model contract，同時讓不同節點有一致的 dry-run capture policy。具體 Pod/Job 轉換見 [Dry-run Profile Job 部署](dry-run-deployment.md)。
+
 Energy adapter 對 Netdata 的每個 timestamp 將 18 個 features 餵入模型，得到 P(t)，以梯形積分算出 dry-run window energy；ranking 使用 steady power 和預測 runtime 外推正式任務能量。
 
 真正的 collector 應輸出 [node-result schema](../schemas/node-result.schema.json)。目前 runtime model 還在修改時，輸出：

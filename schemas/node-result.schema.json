@@ -31,6 +31,15 @@
         },
         "model_version": {"type": "string"},
         "feature_schema_version": {"type": "string"},
+        "capture_policy": {"enum": ["fixed-profile-wall-window"]},
+        "configured_capture_seconds": {"type": "number", "exclusiveMinimum": 0},
+        "observed_cuda_active_seconds": {"type": "number", "minimum": 0},
+        "wall_timeout_seconds": {"type": "number", "exclusiveMinimum": 0},
+        "detector_windows_seconds": {
+          "type": "array",
+          "items": {"type": "number", "exclusiveMinimum": 0},
+          "minItems": 1
+        },
         "predicted_runtime_ms_per_iteration": {"type": "number", "exclusiveMinimum": 0},
         "emission_horizon_seconds": {"type": "number", "exclusiveMinimum": 0},
         "confidence": {"type": "number", "minimum": 0, "maximum": 1},

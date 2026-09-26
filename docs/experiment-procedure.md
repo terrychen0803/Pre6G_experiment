@@ -48,13 +48,16 @@ Profile Job：
 - pin 到一個 node。
 - request 一個 shared GPU replica，例如 `nvidia.com/gpu.shared: 1`。
 - `backoffLimit: 0`。
-- 設定 bounded timeout。
+- `activeDeadlineSeconds: 300`，避免初始化、Nsight finalization 或上傳永久卡住。
 - 用 Nsight 直接 launch 原始 command。
-- 使用 target-process CUDA kernel trace；在 7/9/12/15/20/30 秒做 adaptive confidence/stability check。
-- 預熱後至少三個完整 cycles；目前 high-load 實測平均 emission horizon 13.54 秒，預設上限可先設 30 秒。
+- 從 Nsight launch 原始 application 起固定 profiling 120 秒；若 workload 提前自然完成，保存實際 capture 長度，並在匯出後記錄實際 CUDA-active span。
+- 完成 report/SQLite 後，在 7/9/12/15/20/30 秒 prefix 離線執行 detector；30/60/90/120 秒區段只作長期 stability/load-drift gate。
+- 至少三個完整 cycles；固定 capture 不代表 runtime model 可以改吃 120 秒 aggregate feature。
 - collector 驗證 report 並上傳。
 
 線上模式可平行跑所有 candidate nodes；研究評估另做隨機節點順序、每節點至少三次的 sequential repeats。
+
+Profile Job 如何由原始 Job 轉換、固定節點、包裝 command、停止 workload 與回收 artifact，見 [Dry-run Profile Job 部署](dry-run-deployment.md)。
 
 ## Phase 5：Feature extraction
 

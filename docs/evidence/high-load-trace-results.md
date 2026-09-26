@@ -40,7 +40,7 @@ Adaptive deployment policy 結果：
 | 12 s | 24/24 | 2.31% | 3.16% |
 | 15 s | 24/24 | 1.48% | 3.03% |
 
-因此 5 秒可以作早期嘗試，但不能作全 workload 的固定完成條件。推薦 adaptive 7/9/12/15/20/30 秒策略，或先以 15 秒作 MVP default。
+因此 5 秒可以作 detector 的早期 prefix，但不能作全 workload 的固定 capture 完成條件。既有數字來自完整 trace 的離線 prefix 評估，不等於當時真的在該秒數停止 Nsight。平台第一版從 application launch 起固定 profiling 120 秒，再由第一個 target CUDA kernel 離線執行 7/9/12/15/20/30 秒 detector；120 秒設定仍需用實際 k3s artifacts 驗證 report 大小、profiling overhead 與長期 drift gate。
 
 `full-run APE` 包含 profiling 後段 contention/load drift，不等同 detector 在 emission window 的錯誤；deployment gate 應以 prefix/two-window stability 為主。
 

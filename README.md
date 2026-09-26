@@ -1,6 +1,6 @@
 # Pre6G Experiment
 
-在 k3s 上執行「短時間 profiling → runtime/power 推論 → 能源排名 → 正式部署」的實驗規格與可執行原型。
+在 k3s 上執行「固定 120 秒 profiling → 離線 period detection → runtime/power 推論 → 能源排名 → 正式部署」的實驗規格與可執行原型。
 
 目前這個 repository 的定位是整合與驗證平台，不宣稱 runtime 模型已經定版。平台會明確區分：
 
@@ -15,6 +15,8 @@ User batch/v1 Job
   → validate / estimate work units
   → discover eligible GPU nodes
   → one pinned Profile Job per node
+  → collect a fixed 120-second target-process profile
+  → run period detection offline on trace prefixes/windows
   → target-process CUDA trace features + timestamp-aligned Netdata features
   → runtime adapter + power adapter
   → energy/confidence/OOD gate
@@ -27,6 +29,7 @@ User batch/v1 Job
 
 - [系統架構](docs/architecture.md)
 - [完整實驗程序](docs/experiment-procedure.md)
+- [Dry-run Profile Job 部署](docs/dry-run-deployment.md)
 - [模型與 iteration 未定時的處理](docs/model-and-work-estimation.md)
 - [Netdata feature contract](docs/netdata-contract.md)
 - [YOLO26 具體範例](docs/yolo26-walkthrough.md)

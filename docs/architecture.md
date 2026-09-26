@@ -47,7 +47,9 @@ CUDA kernel short-name ID
 target process/context identity
 ```
 
-NVTX、iteration CSV、workload ID 與 GPU Metrics 都不進入 detector/model input。Adaptive detector 在 7/9/12/15/20/30 秒檢查 confidence 與相鄰窗口穩定度，達標即停止；不要把固定 5 秒當作全 workload SLA。
+NVTX、iteration CSV、workload ID 與 GPU Metrics 都不進入 detector/model input。每個 Profile Job 從 Nsight launch 原始 application 起固定 profiling 120 秒，整個 Job 的 wall-clock timeout 為 300 秒；如果 workload 在 120 秒前自然完成，保存實際長度。Report 完成並匯出 SQLite 後，才找出第一個 target CUDA kernel，detector 由該點離線分析 7/9/12/15/20/30 秒 prefix，並以可用的後續 30 秒區段檢查 period/load drift。現有 runtime model 仍使用已驗證的短 prefix feature，不把 120 秒 aggregate 直接餵入模型。
+
+固定 capture length 與 detector window 是兩個不同參數。第一版不根據 detector 結果在線提早中止 Nsight；這讓每個節點的 capture policy 一致，也避免 early-stop report 尚未驗證的差異。Profile Job 的完整建置與生命週期見 [Dry-run Profile Job 部署](dry-run-deployment.md)。
 
 完成 ranking 後，controller 由原始 Job deep-copy 出新的 production Job，再加入所選 `nodeSelector`。Profile Job 與 production Job 都不得覆寫原始 YAML。
 
