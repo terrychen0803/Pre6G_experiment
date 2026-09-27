@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://pre6g.example/schemas/node-result.schema.json",
-  "title": "Pre6G shared-GPU node profiling result v2",
+  "title": "Pre6G shared-GPU node profiling result v3",
   "type": "object",
   "required": ["node", "eligible", "gpu_sharing", "runtime", "power", "quality"],
   "properties": {
@@ -9,13 +9,13 @@
     "eligible": {"type": "boolean"},
     "gpu_sharing": {
       "type": "object",
-      "required": ["strategy", "resource_name"],
+      "required": ["strategy", "resource_name", "physical_gpu_uuid"],
       "properties": {
         "strategy": {"enum": ["none", "time-slicing", "mps", "mig-time-slicing"]},
         "resource_name": {"type": "string", "minLength": 1},
         "replicas_per_gpu": {"type": "integer", "minimum": 1},
         "allocated_replicas": {"type": "integer", "minimum": 0},
-        "physical_gpu_uuid": {"type": "string"},
+        "physical_gpu_uuid": {"type": "string", "minLength": 1},
         "co_tenant_count": {"type": "integer", "minimum": 0}
       }
     },
@@ -51,11 +51,25 @@
       "type": "object",
       "required": ["status"],
       "properties": {
-        "status": {"enum": ["ready", "unavailable", "schema_mismatch", "rejected_ood"]},
-        "model_version": {"type": "string"},
+        "status": {
+          "enum": [
+            "ready",
+            "unavailable",
+            "schema_mismatch",
+            "model_binding_mismatch",
+            "rejected_ood"
+          ]
+        },
+        "model_scope": {"enum": ["node-bound"]},
+        "model_id": {"type": "string", "minLength": 1},
+        "model_version": {"type": "string", "minLength": 1},
+        "bound_node": {"type": "string", "minLength": 1},
+        "bound_gpu_uuid": {"type": "string", "minLength": 1},
         "feature_schema_version": {"type": "string"},
         "target_semantics": {"enum": ["node-total-power", "task-incremental-power"]},
+        "target_unit": {"enum": ["W"]},
         "steady_power_w": {"type": "number", "minimum": 0},
+        "predicted_power_w": {"type": "number", "minimum": 0},
         "idle_power_w": {"type": "number", "minimum": 0},
         "observed_window_energy_j": {"type": "number", "minimum": 0},
         "integration_method": {"enum": ["trapezoid"]},
@@ -71,8 +85,13 @@
         "complete_cycles",
         "target_process_identified",
         "hardware_trace",
+        "clock_synchronized",
         "netdata_samples",
-        "max_netdata_gap_s"
+        "max_netdata_gap_s",
+        "dcgm_samples",
+        "max_dcgm_gap_s",
+        "alignment_coverage",
+        "max_alignment_delta_ms"
       ],
       "properties": {
         "complete_cycles": {"type": "integer", "minimum": 0},
@@ -80,8 +99,14 @@
         "target_cuda_process_count": {"type": "integer", "minimum": 0},
         "target_cuda_context_count": {"type": "integer", "minimum": 0},
         "hardware_trace": {"type": "boolean"},
+        "clock_synchronized": {"type": "boolean"},
         "netdata_samples": {"type": "integer", "minimum": 0},
-        "max_netdata_gap_s": {"type": "number", "minimum": 0}
+        "max_netdata_gap_s": {"type": "number", "minimum": 0},
+        "dcgm_samples": {"type": "integer", "minimum": 0},
+        "max_dcgm_gap_s": {"type": "number", "minimum": 0},
+        "alignment_coverage": {"type": "number", "minimum": 0, "maximum": 1},
+        "median_alignment_delta_ms": {"type": "number", "minimum": 0},
+        "max_alignment_delta_ms": {"type": "number", "minimum": 0}
       }
     }
   }
