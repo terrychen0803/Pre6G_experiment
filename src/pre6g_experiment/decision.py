@@ -8,8 +8,9 @@ from typing import Any
 @dataclass(frozen=True)
 class RankedNode:
     node: str
-    runtime_ms_per_iteration: float
-    energy_j_per_iteration: float
+    work_unit: str | None
+    runtime_ms_per_work_unit: float
+    energy_j_per_work_unit: float
     total_runtime_s: float | None
     total_energy_j: float | None
     score: float
@@ -39,7 +40,23 @@ def integrate_power_samples(samples: list[dict[str, Any]]) -> float:
     return energy_j
 
 
-def _reject_reason(item: dict[str, Any], min_confidence: float) -> str | None:
+def _runtime_prediction(runtime: dict[str, Any]) -> tuple[float, str | None]:
+    if "predicted_runtime_ms_per_work_unit" in runtime:
+        value = float(runtime["predicted_runtime_ms_per_work_unit"])
+        return value, runtime.get("work_unit")
+
+    if "predicted_runtime_ms_per_iteration" in runtime:
+        value = float(runtime["predicted_runtime_ms_per_iteration"])
+        return value, runtime.get("work_unit", "training_iteration")
+
+    return -1.0, runtime.get("work_unit")
+
+
+def _reject_reason(
+    item: dict[str, Any],
+    min_confidence: float,
+    expected_work_unit: str | None,
+) -> str | None:
     node = str(item.get("node", "<unknown>"))
     runtime = item.get("runtime") or {}
     power = item.get("power") or {}
@@ -121,8 +138,15 @@ def _reject_reason(item: dict[str, Any], min_confidence: float) -> str | None:
     if float(quality.get("max_alignment_delta_ms", float("inf"))) > 750.0:
         return "Netdata/DCGM alignment delta exceeds 750 ms"
 
-    if float(runtime.get("predicted_runtime_ms_per_iteration", 0)) <= 0:
+    runtime_ms, runtime_work_unit = _runtime_prediction(runtime)
+    if runtime_ms <= 0:
         return "invalid runtime prediction"
+
+    if expected_work_unit is not None:
+        if runtime_work_unit is None:
+            return "runtime prediction does not declare its work unit"
+        if runtime_work_unit != expected_work_unit:
+            return "runtime prediction work unit does not match workload work unit"
 
     steady_power = power.get("steady_power_w", power.get("predicted_power_w", -1))
     if float(steady_power) < 0:
@@ -136,20 +160,24 @@ def _reject_reason(item: dict[str, Any], min_confidence: float) -> str | None:
 
 def rank_nodes(
     results: dict[str, Any],
-    total_iterations: int | None,
+    total_work_units: int | None,
     min_confidence: float = 0.8,
+    *,
+    work_unit: str | None = None,
 ) -> tuple[list[RankedNode], dict[str, str]]:
     ranked: list[RankedNode] = []
     rejected: dict[str, str] = {}
 
     for item in results.get("nodes") or []:
         node = str(item.get("node", "<unknown>"))
-        reason = _reject_reason(item, min_confidence)
+        reason = _reject_reason(item, min_confidence, work_unit)
         if reason:
             rejected[node] = reason
             continue
 
-        runtime_ms = float(item["runtime"]["predicted_runtime_ms_per_iteration"])
+        runtime_ms, runtime_work_unit = _runtime_prediction(item["runtime"])
+        effective_work_unit = work_unit or runtime_work_unit
+
         predicted_power = float(
             item["power"].get(
                 "steady_power_w", item["power"].get("predicted_power_w")
@@ -161,7 +189,7 @@ def rank_nodes(
         # Ranking uses incremental power so nodes with different idle baselines
         # remain comparable.
         incremental_power = max(0.0, predicted_power - idle_power)
-        energy_per_iteration = incremental_power * runtime_ms / 1000.0
+        energy_per_work_unit = incremental_power * runtime_ms / 1000.0
 
         confidence = min(
             float(item["runtime"]["confidence"]),
@@ -170,22 +198,27 @@ def rank_nodes(
         uncertainty_penalty = 1.0 + (1.0 - confidence)
 
         total_runtime = (
-            runtime_ms * total_iterations / 1000.0
-            if total_iterations is not None
+            runtime_ms * total_work_units / 1000.0
+            if total_work_units is not None
             else None
         )
         total_energy = (
-            energy_per_iteration * total_iterations
-            if total_iterations is not None
+            energy_per_work_unit * total_work_units
+            if total_work_units is not None
             else None
         )
-        base_score = total_energy if total_energy is not None else energy_per_iteration
+        base_score = (
+            total_energy
+            if total_energy is not None
+            else energy_per_work_unit
+        )
 
         ranked.append(
             RankedNode(
                 node=node,
-                runtime_ms_per_iteration=runtime_ms,
-                energy_j_per_iteration=energy_per_iteration,
+                work_unit=effective_work_unit,
+                runtime_ms_per_work_unit=runtime_ms,
+                energy_j_per_work_unit=energy_per_work_unit,
                 total_runtime_s=total_runtime,
                 total_energy_j=total_energy,
                 score=base_score * uncertainty_penalty,
