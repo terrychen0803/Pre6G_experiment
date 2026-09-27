@@ -67,11 +67,11 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-python -m pre6g_experiment inspect   --job examples/yolo26/user-job.yaml
+python -m pre6g_experiment inspect --job examples/yolo26/user-job.yaml
 
-python -m pre6g_experiment decide   --job examples/yolo26/user-job.yaml   --results examples/yolo26/synthetic-node-results.json   --output generated/yolo26-production-job.yaml   --allow-synthetic
+python -m pre6g_experiment decide --job examples/yolo26/user-job.yaml --results examples/yolo26/synthetic-node-results.json --output generated/yolo26-production-job.yaml --allow-synthetic
 
-kubectl apply --dry-run=server   -f generated/yolo26-production-job.yaml
+kubectl apply --dry-run=server -f generated/yolo26-production-job.yaml
 ```
 
 `synthetic-node-results.json` 只用來走通 decision path。真正部署時必須由 profile collector、runtime model adapter 與 energy model adapter 產生同一份 schema。
