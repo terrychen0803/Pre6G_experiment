@@ -5,16 +5,53 @@ from pre6g_experiment.decision import (
     production_job,
     rank_nodes,
 )
-from pre6g_experiment.work import estimate_work
+from pre6g_experiment.work import estimate_work, execution_contract
 
 
 class WorkTests(unittest.TestCase):
-    def test_yolo_estimate(self):
+    def test_explicit_generic_work_metadata(self):
+        job = {
+            "metadata": {
+                "annotations": {
+                    "pre6g.io/application-container": "app",
+                    "pre6g.io/workload-family": "video-encoding",
+                    "pre6g.io/work-unit": "frame",
+                    "pre6g.io/total-work-units": "18000",
+                    "pre6g.io/workload-parameters-json": (
+                        '{"codec":"h265","resolution":"3840x2160","preset":"slow"}'
+                    ),
+                }
+            },
+            "spec": {
+                "template": {
+                    "spec": {
+                        "containers": [
+                            {
+                                "name": "app",
+                                "image": "example/ffmpeg@sha256:demo",
+                                "command": ["ffmpeg"],
+                                "args": ["-i", "/data/input.mp4"],
+                            }
+                        ]
+                    }
+                }
+            },
+        }
+
+        estimate = estimate_work(job)
+        self.assertEqual(estimate.status, "declared")
+        self.assertEqual(estimate.work_unit, "frame")
+        self.assertEqual(estimate.total_work_units, 18000)
+        self.assertEqual(estimate.parameters["codec"], "h265")
+        self.assertTrue(estimate.profileable)
+
+    def test_yolo_adapter_estimate(self):
         job = {
             "metadata": {
                 "annotations": {
                     "pre6g.io/application-container": "trainer",
-                    "pre6g.io/workload-family": "yolo26-training",
+                    "pre6g.io/workload-family": "vision-training",
+                    "pre6g.io/workload-adapter": "yolo",
                     "pre6g.io/dataset-train-samples": "512",
                 }
             },
@@ -24,16 +61,122 @@ class WorkTests(unittest.TestCase):
                         "containers": [
                             {
                                 "name": "trainer",
-                                "args": ["--epochs", "20", "--batch", "16"],
+                                "args": [
+                                    "--model",
+                                    "yolo26n.yaml",
+                                    "--epochs",
+                                    "20",
+                                    "--batch",
+                                    "16",
+                                    "--imgsz",
+                                    "640",
+                                ],
                             }
                         ]
                     }
                 }
             },
         }
+
         estimate = estimate_work(job)
         self.assertEqual(estimate.status, "estimated")
+        self.assertEqual(estimate.adapter, "yolo")
+        self.assertEqual(estimate.work_unit, "training_iteration")
+        self.assertEqual(estimate.total_work_units, 640)
+        self.assertEqual(estimate.parameters["batch_size"], 16)
+        self.assertEqual(estimate.parameters["input_size"], 640)
+
+    def test_unknown_workload_remains_profileable(self):
+        job = {
+            "metadata": {
+                "annotations": {
+                    "pre6g.io/application-container": "app",
+                }
+            },
+            "spec": {
+                "template": {
+                    "spec": {
+                        "containers": [
+                            {
+                                "name": "app",
+                                "image": "example/custom@sha256:demo",
+                                "command": ["/app/run"],
+                                "args": ["--opaque", "value"],
+                            }
+                        ]
+                    }
+                }
+            },
+        }
+
+        estimate = estimate_work(job)
+        self.assertEqual(estimate.status, "unknown")
+        self.assertIsNone(estimate.total_work_units)
+        self.assertTrue(estimate.profileable)
+        self.assertTrue(estimate.to_dict()["work"]["runtime_discovery_required"])
+
+    def test_legacy_total_iterations_annotation(self):
+        job = {
+            "metadata": {
+                "annotations": {
+                    "pre6g.io/application-container": "app",
+                    "pre6g.io/total-iterations": "640",
+                }
+            },
+            "spec": {
+                "template": {
+                    "spec": {
+                        "containers": [
+                            {
+                                "name": "app",
+                                "image": "example/train@sha256:demo",
+                            }
+                        ]
+                    }
+                }
+            },
+        }
+
+        estimate = estimate_work(job)
+        self.assertEqual(estimate.status, "declared")
+        self.assertEqual(estimate.work_unit, "training_iteration")
+        self.assertEqual(estimate.total_work_units, 640)
         self.assertEqual(estimate.total_iterations, 640)
+
+    def test_execution_contract_does_not_interpret_arguments(self):
+        job = {
+            "metadata": {
+                "annotations": {
+                    "pre6g.io/application-container": "app",
+                }
+            },
+            "spec": {
+                "template": {
+                    "spec": {
+                        "runtimeClassName": "nvidia",
+                        "restartPolicy": "Never",
+                        "containers": [
+                            {
+                                "name": "app",
+                                "image": "example/app@sha256:demo",
+                                "command": ["python3"],
+                                "args": ["train.py", "--anything", "123"],
+                                "env": [{"name": "SECRET_REF", "valueFrom": {}}],
+                                "resources": {
+                                    "limits": {"nvidia.com/gpu.shared": "1"}
+                                },
+                            }
+                        ],
+                    }
+                }
+            },
+        }
+
+        contract = execution_contract(job)
+        self.assertEqual(contract["command"], ["python3"])
+        self.assertEqual(contract["args"], ["train.py", "--anything", "123"])
+        self.assertEqual(contract["env_names"], ["SECRET_REF"])
+        self.assertNotIn("parameters", contract)
 
 
 class DecisionTests(unittest.TestCase):
@@ -52,7 +195,8 @@ class DecisionTests(unittest.TestCase):
                 "status": "ready",
                 "backend": "target-process-cuda-trace",
                 "supported_sharing_strategies": ["time-slicing"],
-                "predicted_runtime_ms_per_iteration": runtime,
+                "work_unit": "training_iteration",
+                "predicted_runtime_ms_per_work_unit": runtime,
                 "confidence": confidence,
                 "ood": False,
             },
@@ -94,16 +238,33 @@ class DecisionTests(unittest.TestCase):
                 ]
             },
             640,
+            work_unit="training_iteration",
         )
         self.assertFalse(rejected)
         self.assertEqual(ranked[0].node, "b")
+        self.assertEqual(ranked[0].work_unit, "training_iteration")
         self.assertAlmostEqual(ranked[0].total_energy_j, 7862.4)
+
+    def test_rejects_runtime_work_unit_mismatch(self):
+        item = self._node("worker-4090", 52, 330, 80)
+        ranked, rejected = rank_nodes(
+            {"nodes": [item]},
+            100,
+            work_unit="frame",
+        )
+
+        self.assertFalse(ranked)
+        self.assertIn("work unit", rejected["worker-4090"])
 
     def test_rejects_power_model_binding_mismatch(self):
         item = self._node("worker-4090", 52, 330, 80)
         item["power"]["bound_gpu_uuid"] = "GPU-wrong"
 
-        ranked, rejected = rank_nodes({"nodes": [item]}, 640)
+        ranked, rejected = rank_nodes(
+            {"nodes": [item]},
+            640,
+            work_unit="training_iteration",
+        )
 
         self.assertFalse(ranked)
         self.assertIn("worker-4090", rejected)
@@ -113,7 +274,11 @@ class DecisionTests(unittest.TestCase):
         item = self._node("worker-5090", 39, 410, 95)
         item["quality"]["alignment_coverage"] = 0.75
 
-        ranked, rejected = rank_nodes({"nodes": [item]}, 640)
+        ranked, rejected = rank_nodes(
+            {"nodes": [item]},
+            640,
+            work_unit="training_iteration",
+        )
 
         self.assertFalse(ranked)
         self.assertIn("alignment coverage", rejected["worker-5090"])
