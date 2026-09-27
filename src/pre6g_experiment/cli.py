@@ -9,7 +9,7 @@ from typing import Any
 import yaml
 
 from .decision import production_job, rank_nodes
-from .work import application_container, estimate_work
+from .work import execution_contract, estimate_work
 
 
 def load_yaml(path: Path) -> dict[str, Any]:
@@ -24,16 +24,14 @@ def load_yaml(path: Path) -> dict[str, Any]:
 
 def inspect_command(args: argparse.Namespace) -> int:
     job = load_yaml(args.job)
-    container = application_container(job)
-    work = estimate_work(job)
+    workload = estimate_work(job)
     report = {
         "apiVersion": job.get("apiVersion"),
         "kind": job.get("kind"),
         "name": (job.get("metadata") or {}).get("name"),
         "namespace": (job.get("metadata") or {}).get("namespace", "default"),
-        "application_container": container.get("name"),
-        "image": container.get("image"),
-        "work": work.to_dict(),
+        "execution_contract": execution_contract(job),
+        "workload_spec": workload.to_dict(),
     }
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0
@@ -41,22 +39,30 @@ def inspect_command(args: argparse.Namespace) -> int:
 
 def decide_command(args: argparse.Namespace) -> int:
     job = load_yaml(args.job)
-    work = estimate_work(job)
+    workload = estimate_work(job)
     with args.results.open("r", encoding="utf-8") as handle:
         results = json.load(handle)
     if results.get("synthetic") and not args.allow_synthetic:
         raise ValueError("Synthetic results require --allow-synthetic")
-    ranked, rejected = rank_nodes(results, work.total_iterations, args.min_confidence)
+
+    ranked, rejected = rank_nodes(
+        results,
+        workload.total_work_units,
+        args.min_confidence,
+        work_unit=workload.work_unit,
+    )
     if not ranked:
         raise ValueError(f"No eligible nodes; rejection reasons: {rejected}")
+
     selected = ranked[0]
     output_job = production_job(job, selected.node)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("w", encoding="utf-8", newline="\n") as handle:
         yaml.safe_dump(output_job, handle, sort_keys=False, allow_unicode=True)
+
     report = {
         "synthetic": bool(results.get("synthetic")),
-        "work": work.to_dict(),
+        "workload_spec": workload.to_dict(),
         "selected_node": selected.node,
         "ranked": [item.__dict__ for item in ranked],
         "rejected": rejected,
@@ -69,11 +75,18 @@ def decide_command(args: argparse.Namespace) -> int:
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(description="Pre6G experiment prototype")
     commands = root.add_subparsers(dest="command", required=True)
-    inspect_parser = commands.add_parser("inspect", help="inspect a source Job")
+
+    inspect_parser = commands.add_parser(
+        "inspect",
+        help="inspect an opaque source Job and discover workload semantics",
+    )
     inspect_parser.add_argument("--job", type=Path, required=True)
     inspect_parser.set_defaults(handler=inspect_command)
 
-    decide_parser = commands.add_parser("decide", help="rank nodes and render a Job")
+    decide_parser = commands.add_parser(
+        "decide",
+        help="rank nodes and render a production Job",
+    )
     decide_parser.add_argument("--job", type=Path, required=True)
     decide_parser.add_argument("--results", type=Path, required=True)
     decide_parser.add_argument("--output", type=Path, required=True)
@@ -92,3 +105,6 @@ def main() -> None:
         raise SystemExit(2) from exc
     raise SystemExit(status)
 
+
+if __name__ == "__main__":
+    main()
