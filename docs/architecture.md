@@ -1,76 +1,176 @@
 # 系統架構
 
+## 核心原則
+
+Pre6G_experiment 對使用者 Job 採兩層處理：
+
+~~~text
+Execution Contract
+  image / command / args / env / resources / volumes
+
+Workload Semantic Contract
+  workload family
+  canonical parameters
+  work unit
+  total work units
+  discovery source
+~~~
+
+Execution Contract 決定「如何執行」，Semantic Contract 決定「平台理解多少，以及能否外推 total runtime / total energy」。
+
+Unknown semantics 不阻止 profiling。
+
 ## 元件
 
 | 元件 | 執行位置 | 責任 |
 |---|---|---|
-| Experiment API / Controller | k3s server | 接收 Job、找候選節點、建立 Profile Job、等待結果、選點、建立 production Job |
-| Profile Job Builder | controller | 讓固定版本 Nsight Systems 直接啟動原始 command |
-| Application container | candidate worker | 在實際 shared-GPU 資源上短時間執行 workload |
-| Profile collector | 同一 Pod 或 controller-side collector | 等待 report、驗證、nsys stats/export、feature extraction、上傳 artifact |
-| Netdata child | 每個 node 的 DaemonSet | 持續收集 system/CPU/memory/temperature/process CPU time series，並 stream 到 Parent |
-| Netdata Parent | central monitoring service | 保存各 child 的 historical system/CPU telemetry，提供依 hostname 查詢的 API |
-| DCGM Exporter | 每個 NVIDIA node 的 DaemonSet | 以約 1 秒 cadence 提供 GPU utilization、framebuffer、temperature、power |
-| Runtime adapter | central service 或 collector | 接受 target-process CUDA trace schema，輸出 runtime、confidence、OOD、model version |
-| Power model registry/router | central service | 依 Kubernetes node + physical GPU UUID 選出該節點專屬 power model |
-| Power adapter | central service | 將對齊後 canonical telemetry 餵入 node-bound model，輸出 node-total power prediction |
-| Decision layer | controller | 檢查 model binding、telemetry quality、OOD/confidence，計算 incremental energy 並排序 |
-| Artifact store | MinIO/S3/NFS | 保存 report、raw telemetry、aligned features、metadata、prediction 與正式執行觀測 |
+| Experiment API / Controller | k3s server | 接收 Job、驗證 execution contract、找候選節點、建立 Profile Job、等待結果、選點、建立 production Job |
+| Workload Semantic Layer | controller | explicit metadata → adapter → runtime discovery → unknown，輸出 canonical workload spec |
+| Workload Adapter Registry | controller | 針對已知 framework 將 argv/config 轉成 canonical workload semantics；目前先有 YOLO adapter |
+| Profile Job Builder | controller | deep-copy source Job，保留 application contract，只加入 Nsight wrapper、node pin、artifact 與 dry-run policy |
+| Application container | candidate worker | 在實際 shared-GPU 資源上執行使用者 workload |
+| Profile collector | 同一 Pod 或 controller-side collector | 驗證 report、export、feature extraction、artifact upload |
+| Netdata child | 每個 node | system/CPU/memory/temp/process CPU time series |
+| Netdata Parent | central monitoring | per-host historical system telemetry |
+| DCGM Exporter | 每個 NVIDIA node | GPU utilization、framebuffer、temperature、power |
+| Runtime adapter | central service 或 collector | target-process CUDA trace → runtime per work unit / confidence / OOD |
+| Power model registry/router | central service | node + physical GPU UUID → node-bound power model |
+| Power adapter | central service | canonical telemetry → node-total power |
+| Decision layer | controller | 驗證 work-unit/model/telemetry gates，計算 energy 並排序 |
+| Artifact store | MinIO/S3/NFS | source/profile Job、trace、telemetry、semantic spec、predictions、ground truth |
 
 ## 正式資料流
 
-~~~
-User Job
-  |
-  v
-candidate discovery
-  |
-  +-----------------------------+
-  |                             |
-  v                             v
-RTX4090 Profile Job        RTX5090 Profile Job
-  |                             |
-  +--> Nsight 2026 trace        +--> Nsight 2026 trace
-  |                             |
-  +--> Netdata Parent query     +--> Netdata Parent query
-  |                             |
-  +--> DCGM collection          +--> DCGM collection
-  |                             |
-  v                             v
-timestamp-aligned canonical telemetry
-  |                             |
-  v                             v
-Runtime Adapter              Runtime Adapter
-  |                             |
-  v                             v
-runtime prediction           runtime prediction
+~~~text
+                     User batch/v1 Job
+                           |
+              +------------+------------+
+              |                         |
+              v                         v
+      Execution Contract        Semantic Discovery
+                                   |
+                      +------------+------------+
+                      |            |            |
+                   explicit      adapter      runtime
+                   metadata                   discovery
+                      |            |            |
+                      +------------+------------+
+                                   |
+                                   v
+                         Canonical Workload Spec
+                                   |
+                                   v
+                         candidate discovery
+                                   |
+                 +-----------------+-----------------+
+                 |                                   |
+                 v                                   v
+          RTX4090 dry-run                      RTX5090 dry-run
+                 |                                   |
+          Nsight target trace                  Nsight target trace
+          Netdata historical                   Netdata historical
+          DCGM collection                      DCGM collection
+                 |                                   |
+                 v                                   v
+          aligned telemetry                    aligned telemetry
+                 |                                   |
+                 +------------ runtime ------------+
+                 |                                   |
+                 v                                   v
+        runtime per work unit               runtime per work unit
 
-aligned telemetry             aligned telemetry
-  |                             |
-  v                             v
-Power Model Router           Power Model Router
-  |                             |
-  +--> 4090 node model         +--> 5090 node model
-  |                             |
-  v                             v
-node-total power             node-total power
-  |                             |
-  +------ subtract node-specific idle power ------+
-                                                   |
-                                                   v
-                                           energy comparison
-                                                   |
-                                                   v
-                                           production placement
+                 +------------- power -------------+
+                 |                                   |
+                 v                                   v
+          4090 node model                      5090 node model
+                 |                                   |
+                 v                                   v
+          node-total power                     node-total power
+                 |                                   |
+                 +---------- normalization ----------+
+                                   |
+                                   v
+                         total-job comparison
+                     only if total work is known
+                                   |
+                                   v
+                         production placement
 ~~~
+
+## Workload semantic contract
+
+Canonical schema：
+
+~~~text
+schemas/workload-spec.schema.json
+~~~
+
+核心欄位：
+
+~~~text
+workload_family
+adapter
+profileable
+parameters
+work.status
+work.unit
+work.total_units
+work.source
+work.missing
+runtime_discovery_required
+~~~
+
+Discovery priority：
+
+~~~text
+1. explicit canonical metadata
+2. registered adapter
+3. runtime discovery
+4. unknown
+~~~
+
+平台核心不解析任意 CLI 的語意；只由 adapter 處理它宣告支援的 framework。
+
+目前 first adapter = YOLO。未來加入 LLM / FFmpeg / FAISS adapter 不需要改 execution path。
+
+## Generic runtime semantics
+
+不要把所有 workload 都強制視為 iteration。
+
+Examples：
+
+~~~text
+YOLO training      -> training_iteration
+LLM fine-tuning    -> optimizer_step
+LLM inference      -> generated_token
+FFmpeg             -> frame
+FAISS build        -> vector_insert
+~~~
+
+Runtime adapter 建議輸出：
+
+~~~json
+{
+  "work_unit": "training_iteration",
+  "predicted_runtime_ms_per_work_unit": 42.1
+}
+~~~
+
+若 workload spec work unit 與 runtime prediction work unit 不一致，decision layer 拒絕外推。
+
+只有 total_work_units 已知，才允許：
+
+~~~text
+T_total = T_per_work_unit * total_work_units
+~~~
+
+Unknown total work 仍可保留 per-cycle/per-unit evidence，但不應宣稱 total-job runtime/energy。
 
 ## Telemetry responsibility
 
-The canonical energy feature schema is not tied to one monitoring product.
+Current validated ownership：
 
-Current validated ownership:
-
-~~~
+~~~text
 Netdata
   CPU User/System/IOWait
   Load 1/5/15
@@ -85,30 +185,26 @@ DCGM Exporter
   GPU power
 
 Nsight Systems
-  target-process CUDA trace used by the runtime model
+  target-process CUDA trace
 ~~~
 
-Top1/Top2 per-process GPU utilization remains an optional extension. If a specific node-bound power model requires it, that model is not ready until a validated collector supplies it.
+Top1/Top2 per-process GPU utilization remain optional extension。
 
 ## Node-bound power model routing
 
-Power models are currently node-specific.
+Power models currently node-specific。
 
-Routing key:
+Routing key：
 
-~~~
+~~~text
 Kubernetes node name
 +
 physical GPU UUID
 ~~~
 
-Do not route only by product name such as RTX4090/RTX5090.
+Automatic ranking currently requires：
 
-A central Power Adapter loads the matching model through the model registry and converts its output to a common prediction contract. The decision layer therefore stays model-implementation agnostic.
-
-Automatic ranking currently requires:
-
-~~~
+~~~text
 model_scope = node-bound
 target_semantics = node-total-power
 target_unit = W
@@ -116,90 +212,108 @@ bound_node == candidate node
 bound_gpu_uuid == candidate physical GPU UUID
 ~~~
 
-For ranking:
+For ranking：
 
-~~~
+~~~text
 P_incremental = max(0, P_node_predicted - P_idle_node)
-E_incremental = P_incremental × predicted runtime
 ~~~
 
-For timestamped power predictions, integrate P_incremental(t) over time.
+若 power prediction 是 time series，積分 P_incremental(t)。
 
-See power-model-registry.md.
+RTX4090 / RTX5090 真實 power model formats尚未取得，因此 real workflow目前保持 profile-only。
 
-## 為什麼不用 profiling sidecar attach
+## Profile Job wrapping
 
-Application container 的 command 應改成：
+Controller 不重新理解或重寫 application parameters。
 
+原始：
+
+~~~text
+<original-command> <original-args>
 ~~~
-nsys profile [options] -- original-command [args]
+
+Profile：
+
+~~~text
+/opt/pre6g/nsight/bin/nsys profile
+  --trace=cuda,nvtx,osrt
+  --sample=none
+  --cpuctxsw=none
+  --output=<artifact-path>/profile
+  --
+  <original-command> <original-args>
 ~~~
 
-collector sidecar 只處理完成後的 report。這避免 PID namespace、attach race、SYS_PTRACE 與 privileged Pod。
+Adapter 只做 semantic discovery，不參與 argv reconstruction。
 
 ## Kubernetes placement
 
-MVP 不修改 kube-scheduler。Controller 為每個 candidate node 建立一個獨立 Job：
+MVP 不修改 kube-scheduler。每個 candidate node 建立獨立 dry-run Job：
 
 ~~~yaml
 nodeSelector:
   kubernetes.io/hostname: worker-5090
 resources:
+  requests:
+    nvidia.com/gpu.shared: "1"
   limits:
     nvidia.com/gpu.shared: "1"
 ~~~
 
-實際 resource name 以 device plugin 設定為準。若 renameByDefault=false，shared replica 仍可能名為 nvidia.com/gpu；平台不能只靠 resource name 判斷是否共享，必須讀取 node sharing label/config。
+Profile 與 production 必須使用相同 sharing contract。
 
 ## Shared-GPU runtime backend
 
-High-load 實驗顯示 device-wide GPU Metrics 會被背景程序污染。正式 shared-mode extractor 只讀 target-process CUDA trace：
+正式 shared-mode extractor只讀 target-process CUDA trace：
 
-~~~
+~~~text
 CUPTI kernel start timestamp
 CUDA kernel short-name ID
 target process/context identity
 ~~~
 
-NVTX、iteration CSV、workload ID 與 device-wide GPU Metrics 不進入 period detector/model input。
+Device-wide GPU metrics不作 period detector fallback。
 
-每個 Profile Job 從 Nsight launch 原始 application 起固定 profiling 120 秒，整個 Job wall-clock timeout 為 300 秒。如果 workload 在 120 秒前自然完成，保存實際長度。Report 完成並匯出 SQLite 後，才找出第一個 target CUDA kernel，detector 由該點離線分析 7/9/12/15/20/30 秒 prefix，並以可用的後續 30 秒區段檢查 period/load drift。
+正式 capture：
 
-固定 capture length 與 detector window 是兩個不同參數。第一版不根據 detector 結果在線提早中止 Nsight。
+~~~text
+configured capture = 120 s
+wall timeout = 300 s
+detector prefixes = 7/9/12/15/20/30 s
+minimum complete cycles = 3
+~~~
+
+在此之前，Phase 05/06先做短 execution/profile compatibility。
 
 ## Telemetry time alignment
 
-Canonical timestamp 使用 UTC Unix nanoseconds。
+Canonical timestamp = UTC Unix nanoseconds。
 
-Netdata historical sample 使用 API 提供的 timestamp。
+DCGM：
 
-DCGM collector 記錄 request start/end，並以：
-
-~~~
+~~~text
 timestamp_ns = (request_start_ns + request_end_ns) / 2
 ~~~
 
-作為該次 sample timestamp。
+Alignment gate：
 
-Current quality gate:
-
-~~~
-nearest timestamp alignment
+~~~text
+nearest timestamp
 tolerance <= 750 ms
-alignment coverage >= 90%
+coverage >= 90%
 max Netdata gap <= 2 s
 max DCGM gap <= 2 s
 ~~~
 
-三台目前納入流程的 control-plane / RTX worker 都必須先通過 NTP synchronized preflight。
-
 ## 狀態機
 
-~~~
+~~~text
 RECEIVED
-→ VALIDATED
+→ EXECUTION_VALIDATED
+→ SEMANTICS_DISCOVERED
 → CANDIDATES_DISCOVERED
 → TELEMETRY_READY
+→ SHORT_COMPATIBILITY_PASSED
 → PROFILE_JOBS_CREATED
 → PROFILING
 → FEATURES_EXTRACTED
@@ -212,13 +326,16 @@ RECEIVED
 → COMPLETED
 ~~~
 
-任何一步都要保存原因明確的 failure state。不得以零、平均 GPU、其他 node model 或任意常數默默取代 unavailable model。
+Semantic status unknown 可以繼續到 profiling；只有需要 total-job prediction/ranking 時才形成 gate。
 
 ## Artifact layout
 
-~~~
+~~~text
 artifacts/<task-id>/<node>/<attempt>/
 ├── source-job.yaml
+├── execution-contract.json
+├── workload-spec.json
+├── runtime-discovery.json
 ├── profile-job.yaml
 ├── profile.nsys-rep
 ├── profile.sqlite
@@ -240,4 +357,4 @@ artifacts/<task-id>/<node>/<attempt>/
 └── checksums.json
 ~~~
 
-不要使用 k3s local-path RWO PVC 當成跨節點共享 artifact store；多節點平行 Profile Job 應使用 object storage、RWX storage，或先寫 node-local scratch 再上傳。
+不要使用 k3s local-path RWO PVC 當跨節點共享 artifact store。
