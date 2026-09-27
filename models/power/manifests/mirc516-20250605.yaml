@@ -1,0 +1,30 @@
+schema_version: pre6g.power-model-manifest/v1
+status: unavailable
+
+model_scope: node-bound
+model_id: null
+model_version: null
+
+node_binding:
+  kubernetes_node: mirc516-20250605
+  gpu_uuid: GPU-a4e6b1ee-8a31-991f-dc82-fdab833483c4
+  gpu_model: NVIDIA GeForce RTX 5090
+
+feature_schema_version: pre6g-energy-features/v2
+required_features: null
+
+target:
+  semantics: node-total-power
+  unit: W
+
+artifact:
+  uri: null
+  sha256: null
+
+preprocessing:
+  manifest_uri: null
+  sha256: null
+
+notes:
+  - Populate the exact model identity, artifact URI/checksum, preprocessing manifest, and required feature order before changing status to ready.
+  - If the trained model requires Top1 GPU% or Top2 GPU%, keep status unavailable/schema_mismatch until a validated per-process GPU collector is available.
