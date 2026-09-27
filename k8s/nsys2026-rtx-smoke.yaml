@@ -1,0 +1,281 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pre6g-nsys2026-smoke-4090
+  namespace: experiments
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        pre6g.io/test: nsys2026-smoke
+        pre6g.io/gpu-model: rtx4090
+    spec:
+      runtimeClassName: nvidia
+      restartPolicy: Never
+      nodeSelector:
+        kubernetes.io/hostname: iccl-s3-251230
+      containers:
+        - name: profiler
+          image: nvidia/cuda:12.8.1-devel-ubuntu22.04
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/bash
+            - -lc
+            - |
+              set -euxo pipefail
+
+              NSYS=/opt/pre6g/nsight/bin/nsys
+              OUT=/artifacts/profile
+
+              echo "===== HOSTNAME ====="
+              hostname
+
+              echo "===== ARCH ====="
+              uname -m
+
+              echo "===== GPU ====="
+              nvidia-smi                 --query-gpu=name,uuid,driver_version,memory.total                 --format=csv,noheader
+
+              echo "===== CUDA COMPILER ====="
+              nvcc --version
+
+              echo "===== NSIGHT SYSTEMS ====="
+              "${NSYS}" --version
+
+              cat > /tmp/cuda_smoke.cu <<'CUDAEOF'
+              #include <cuda_runtime.h>
+              #include <stdio.h>
+              #include <stdlib.h>
+
+              __global__ void vector_add(
+                  const float *a,
+                  const float *b,
+                  float *c,
+                  int n)
+              {
+                  int i = blockIdx.x * blockDim.x + threadIdx.x;
+                  if (i < n) {
+                      c[i] = a[i] + b[i];
+                  }
+              }
+
+              static void check_cuda(cudaError_t err, const char *where)
+              {
+                  if (err != cudaSuccess) {
+                      fprintf(stderr, "CUDA error at %s: %s\n",
+                              where, cudaGetErrorString(err));
+                      exit(1);
+                  }
+              }
+
+              int main(void)
+              {
+                  const int n = 1 << 22;
+                  const size_t bytes = (size_t)n * sizeof(float);
+                  float *a = NULL;
+                  float *b = NULL;
+                  float *c = NULL;
+
+                  check_cuda(cudaMalloc(&a, bytes), "cudaMalloc(a)");
+                  check_cuda(cudaMalloc(&b, bytes), "cudaMalloc(b)");
+                  check_cuda(cudaMalloc(&c, bytes), "cudaMalloc(c)");
+                  check_cuda(cudaMemset(a, 0, bytes), "cudaMemset(a)");
+                  check_cuda(cudaMemset(b, 0, bytes), "cudaMemset(b)");
+
+                  for (int iter = 0; iter < 500; ++iter) {
+                      vector_add<<<(n + 255) / 256, 256>>>(a, b, c, n);
+                      check_cuda(cudaGetLastError(), "vector_add launch");
+                  }
+
+                  check_cuda(cudaDeviceSynchronize(), "cudaDeviceSynchronize");
+                  check_cuda(cudaFree(a), "cudaFree(a)");
+                  check_cuda(cudaFree(b), "cudaFree(b)");
+                  check_cuda(cudaFree(c), "cudaFree(c)");
+
+                  printf("CUDA_SMOKE_PASS\n");
+                  return 0;
+              }
+              CUDAEOF
+
+              nvcc -O2 -arch=native /tmp/cuda_smoke.cu -o /tmp/cuda_smoke
+
+              echo "===== RUN WITHOUT PROFILER ====="
+              /tmp/cuda_smoke
+
+              echo "===== NSYS PROFILE ====="
+              "${NSYS}" profile                 --trace=cuda,nvtx,osrt                 --sample=none                 --cpuctxsw=none                 --force-overwrite=true                 --output="${OUT}"                 /tmp/cuda_smoke
+
+              echo "===== PROFILE ARTIFACT ====="
+              ls -lah /artifacts
+              test -s "${OUT}.nsys-rep"
+
+              echo "===== NSYS STATS ====="
+              rm -f "${OUT}.sqlite"
+              "${NSYS}" stats                 --report cuda_api_sum                 --report cuda_gpu_kern_sum                 --report osrt_sum                 "${OUT}.nsys-rep"
+
+              echo "===== SQLITE ARTIFACT ====="
+              test -s "${OUT}.sqlite"
+              ls -lh "${OUT}.sqlite"
+
+              echo "===== NSYS2026_SMOKE_PASS ====="
+          resources:
+            requests:
+              nvidia.com/gpu.shared: "1"
+            limits:
+              nvidia.com/gpu.shared: "1"
+          volumeMounts:
+            - name: nsys-runtime
+              mountPath: /opt/pre6g/nsight
+              readOnly: true
+            - name: artifacts
+              mountPath: /artifacts
+      volumes:
+        - name: nsys-runtime
+          hostPath:
+            path: /opt/nvidia/nsight-systems-cli/2026.4.1
+            type: Directory
+        - name: artifacts
+          emptyDir: {}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pre6g-nsys2026-smoke-5090
+  namespace: experiments
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        pre6g.io/test: nsys2026-smoke
+        pre6g.io/gpu-model: rtx5090
+    spec:
+      runtimeClassName: nvidia
+      restartPolicy: Never
+      nodeSelector:
+        kubernetes.io/hostname: mirc516-20250605
+      containers:
+        - name: profiler
+          image: nvidia/cuda:12.8.1-devel-ubuntu22.04
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/bash
+            - -lc
+            - |
+              set -euxo pipefail
+
+              NSYS=/opt/pre6g/nsight/bin/nsys
+              OUT=/artifacts/profile
+
+              echo "===== HOSTNAME ====="
+              hostname
+
+              echo "===== ARCH ====="
+              uname -m
+
+              echo "===== GPU ====="
+              nvidia-smi                 --query-gpu=name,uuid,driver_version,memory.total                 --format=csv,noheader
+
+              echo "===== CUDA COMPILER ====="
+              nvcc --version
+
+              echo "===== NSIGHT SYSTEMS ====="
+              "${NSYS}" --version
+
+              cat > /tmp/cuda_smoke.cu <<'CUDAEOF'
+              #include <cuda_runtime.h>
+              #include <stdio.h>
+              #include <stdlib.h>
+
+              __global__ void vector_add(
+                  const float *a,
+                  const float *b,
+                  float *c,
+                  int n)
+              {
+                  int i = blockIdx.x * blockDim.x + threadIdx.x;
+                  if (i < n) {
+                      c[i] = a[i] + b[i];
+                  }
+              }
+
+              static void check_cuda(cudaError_t err, const char *where)
+              {
+                  if (err != cudaSuccess) {
+                      fprintf(stderr, "CUDA error at %s: %s\n",
+                              where, cudaGetErrorString(err));
+                      exit(1);
+                  }
+              }
+
+              int main(void)
+              {
+                  const int n = 1 << 22;
+                  const size_t bytes = (size_t)n * sizeof(float);
+                  float *a = NULL;
+                  float *b = NULL;
+                  float *c = NULL;
+
+                  check_cuda(cudaMalloc(&a, bytes), "cudaMalloc(a)");
+                  check_cuda(cudaMalloc(&b, bytes), "cudaMalloc(b)");
+                  check_cuda(cudaMalloc(&c, bytes), "cudaMalloc(c)");
+                  check_cuda(cudaMemset(a, 0, bytes), "cudaMemset(a)");
+                  check_cuda(cudaMemset(b, 0, bytes), "cudaMemset(b)");
+
+                  for (int iter = 0; iter < 500; ++iter) {
+                      vector_add<<<(n + 255) / 256, 256>>>(a, b, c, n);
+                      check_cuda(cudaGetLastError(), "vector_add launch");
+                  }
+
+                  check_cuda(cudaDeviceSynchronize(), "cudaDeviceSynchronize");
+                  check_cuda(cudaFree(a), "cudaFree(a)");
+                  check_cuda(cudaFree(b), "cudaFree(b)");
+                  check_cuda(cudaFree(c), "cudaFree(c)");
+
+                  printf("CUDA_SMOKE_PASS\n");
+                  return 0;
+              }
+              CUDAEOF
+
+              nvcc -O2 -arch=native /tmp/cuda_smoke.cu -o /tmp/cuda_smoke
+
+              echo "===== RUN WITHOUT PROFILER ====="
+              /tmp/cuda_smoke
+
+              echo "===== NSYS PROFILE ====="
+              "${NSYS}" profile                 --trace=cuda,nvtx,osrt                 --sample=none                 --cpuctxsw=none                 --force-overwrite=true                 --output="${OUT}"                 /tmp/cuda_smoke
+
+              echo "===== PROFILE ARTIFACT ====="
+              ls -lah /artifacts
+              test -s "${OUT}.nsys-rep"
+
+              echo "===== NSYS STATS ====="
+              rm -f "${OUT}.sqlite"
+              "${NSYS}" stats                 --report cuda_api_sum                 --report cuda_gpu_kern_sum                 --report osrt_sum                 "${OUT}.nsys-rep"
+
+              echo "===== SQLITE ARTIFACT ====="
+              test -s "${OUT}.sqlite"
+              ls -lh "${OUT}.sqlite"
+
+              echo "===== NSYS2026_SMOKE_PASS ====="
+          resources:
+            requests:
+              nvidia.com/gpu.shared: "1"
+            limits:
+              nvidia.com/gpu.shared: "1"
+          volumeMounts:
+            - name: nsys-runtime
+              mountPath: /opt/pre6g/nsight
+              readOnly: true
+            - name: artifacts
+              mountPath: /artifacts
+      volumes:
+        - name: nsys-runtime
+          hostPath:
+            path: /opt/nvidia/nsight-systems-cli/2026.4.1
+            type: Directory
+        - name: artifacts
+          emptyDir: {}
