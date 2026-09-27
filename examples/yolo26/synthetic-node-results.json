@@ -1,5 +1,5 @@
 {
-  "schema_version": "pre6g.node-results/v2",
+  "schema_version": "pre6g.node-results/v3",
   "synthetic": true,
   "task_id": "yolo26-demo-001",
   "nodes": [
@@ -32,9 +32,14 @@
       },
       "power": {
         "status": "ready",
+        "model_scope": "node-bound",
+        "model_id": "synthetic-power-worker-4090",
         "model_version": "synthetic-demo-only",
-        "feature_schema_version": "energy-features/v1",
+        "bound_node": "worker-4090",
+        "bound_gpu_uuid": "GPU-DEMO-4090",
+        "feature_schema_version": "pre6g-energy-features/v2",
         "target_semantics": "node-total-power",
+        "target_unit": "W",
         "steady_power_w": 330.0,
         "idle_power_w": 80.0,
         "observed_window_energy_j": 4875.0,
@@ -49,8 +54,14 @@
         "target_cuda_process_count": 1,
         "target_cuda_context_count": 1,
         "hardware_trace": true,
-        "netdata_samples": 15,
-        "max_netdata_gap_s": 1.05
+        "clock_synchronized": true,
+        "netdata_samples": 120,
+        "max_netdata_gap_s": 1.0,
+        "dcgm_samples": 120,
+        "max_dcgm_gap_s": 1.1,
+        "alignment_coverage": 1.0,
+        "median_alignment_delta_ms": 260.0,
+        "max_alignment_delta_ms": 490.0
       }
     },
     {
@@ -82,9 +93,14 @@
       },
       "power": {
         "status": "ready",
+        "model_scope": "node-bound",
+        "model_id": "synthetic-power-worker-5090",
         "model_version": "synthetic-demo-only",
-        "feature_schema_version": "energy-features/v1",
+        "bound_node": "worker-5090",
+        "bound_gpu_uuid": "GPU-DEMO-5090",
+        "feature_schema_version": "pre6g-energy-features/v2",
         "target_semantics": "node-total-power",
+        "target_unit": "W",
         "steady_power_w": 410.0,
         "idle_power_w": 95.0,
         "observed_window_energy_j": 4860.0,
@@ -99,8 +115,14 @@
         "target_cuda_process_count": 1,
         "target_cuda_context_count": 1,
         "hardware_trace": true,
-        "netdata_samples": 15,
-        "max_netdata_gap_s": 1.03
+        "clock_synchronized": true,
+        "netdata_samples": 120,
+        "max_netdata_gap_s": 1.0,
+        "dcgm_samples": 120,
+        "max_dcgm_gap_s": 1.1,
+        "alignment_coverage": 1.0,
+        "median_alignment_delta_ms": 285.0,
+        "max_alignment_delta_ms": 491.0
       }
     }
   ]
