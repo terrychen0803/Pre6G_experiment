@@ -6,10 +6,17 @@ metadata:
   labels:
     app.kubernetes.io/name: yolo26-train
   annotations:
+    # Generic platform contract: identifies which container is the user's
+    # application. The controller preserves its image/command/args/resources.
     pre6g.io/application-container: trainer
-    pre6g.io/workload-family: yolo26-training
+
+    # Semantic hints are optional. They help the platform select a workload
+    # adapter or understand total work, but they do not replace the real argv.
+    pre6g.io/workload-family: vision-training
+    pre6g.io/workload-adapter: yolo
     pre6g.io/dataset-train-samples: "512"
     pre6g.io/work-estimate-assumptions: single-gpu,no-gradient-accumulation,no-drop-last
+
 spec:
   backoffLimit: 0
   template:
@@ -21,7 +28,14 @@ spec:
       restartPolicy: Never
       containers:
         - name: trainer
+
+          # Phase 05 placeholder only. Replace this with the immutable digest
+          # of the validated x86_64 test image before actual cluster execution.
           image: registry.example.edu/pre6g/yolo26-train@sha256:REPLACE_WITH_IMMUTABLE_DIGEST
+
+          # This is ordinary user workload argv. The Pre6G core treats it as
+          # opaque execution data. The optional YOLO adapter can interpret a
+          # subset of these parameters for semantic discovery.
           command: ["python3"]
           args:
             - train_yolo26.py
@@ -39,6 +53,7 @@ spec:
             - "0"
             - --workers
             - "0"
+
           resources:
             requests:
               cpu: "4"
@@ -48,10 +63,12 @@ spec:
               cpu: "8"
               memory: 16Gi
               nvidia.com/gpu.shared: "1"
+
           volumeMounts:
             - name: dataset
               mountPath: /data
               readOnly: true
+
       volumes:
         - name: dataset
           persistentVolumeClaim:
