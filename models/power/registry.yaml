@@ -1,0 +1,10 @@
+schema_version: pre6g.power-model-registry/v1
+
+models:
+  - node: iccl-s3-251230
+    gpu_uuid: GPU-39ace77c-cb0f-dd47-ae6b-12014c25b1d1
+    manifest: manifests/iccl-s3-251230.yaml
+
+  - node: mirc516-20250605
+    gpu_uuid: GPU-a4e6b1ee-8a31-991f-dc82-fdab833483c4
+    manifest: manifests/mirc516-20250605.yaml
