@@ -1,8 +1,8 @@
 # k3s Cluster Baseline
 
-本文件保存 Pre6G Experiment 第一次實際 k3s 多 GPU 整合測試的叢集基線，目的在於讓後續 profiling、Netdata、runtime/power prediction 與 production placement 都有可追溯的環境依據。
+本文件保存 Pre6G Experiment 實際 k3s 多 GPU 整合測試的叢集基線，目的在於讓後續 profiling、Netdata、runtime/power prediction 與 production placement 都有可追溯的環境依據。
 
-> Snapshot date: 2026-09-26
+> Snapshot date: 2026-09-27
 >
 > 本 repository 為 public repository，因此不保存 master/worker 的實際網路位址。需要重新確認時，請在 control-plane 執行 `kubectl get nodes -o wide`。
 
@@ -19,37 +19,31 @@
 
 目前 cluster 同時存在 `nvidia` 與 `nvidia-experimental` RuntimeClass。Pre6G application/profile Job 預設使用 `runtimeClassName: nvidia`。
 
-## 2. Target RTX worker mapping
+## 2. Current RTX experiment scope
 
-本輪實驗的目標是 RTX 3090、RTX 4090、RTX 5090 三個 worker。
+本輪整合測試先以 RTX 4090 與 RTX 5090 為正式候選節點。RTX 3090 因本機儲存空間不足，暫緩加入本輪 Pod / profiling 驗證，待儲存空間整理後再重新納入。
 
-| GPU | Kubernetes node | Node status | OS / kernel | GPU resource | Device plugin | DCGM exporter | Netdata child |
-|---|---|---|---|---|---|---|---|
-| RTX 3090 | not discovered in current node list | **BLOCKED** | unknown | unknown | unknown | unknown | unknown |
-| RTX 4090 | `iccl-s3-251230` | Ready | Ubuntu 24.04.3 / `6.17.0-40-generic` | `nvidia.com/gpu.shared: 4` | Running | Running | Running |
-| RTX 5090 | `mirc516-20250605` | Ready | Ubuntu 24.04.3 / `7.0.0-30-generic` | `nvidia.com/gpu.shared: 4` | Running | Running | **Evicted** |
+| GPU | Kubernetes node | Node status | OS / kernel | GPU resource | GPU smoke | Nsight 2026 CUDA smoke |
+|---|---|---|---|---|---|---|
+| RTX 3090 | deferred | not in current test scope | not re-audited | not re-audited | Deferred | Deferred |
+| RTX 4090 | `iccl-s3-251230` | Ready | Ubuntu 24.04.3 / `6.17.0-40-generic` | `nvidia.com/gpu.shared: 4` | PASS | PASS |
+| RTX 5090 | `mirc516-20250605` | Ready | Ubuntu 24.04.3 / `7.0.0-30-generic` | `nvidia.com/gpu.shared: 4` | PASS | PASS |
 
-### RTX 3090 blocker
+已在 Pod 內確認 GPU identity：
 
-The expected RTX 3090 worker was not present in the current output of:
-
-```bash
-kubectl get nodes -o wide
-```
-
-Therefore the platform must not treat RTX 3090 as an eligible candidate node yet. Before profiling it, confirm that the worker has joined the current k3s cluster, is `Ready`, and advertises the expected NVIDIA GPU resource.
+- RTX 4090：NVIDIA GeForce RTX 4090，24,564 MiB，driver 595.84。
+- RTX 5090：NVIDIA GeForce RTX 5090，32,607 MiB，driver 580.173.02。
+- 兩個節點皆為 Linux `x86_64`。
 
 ## 3. GPU resource contract
 
-The Ready RTX 4090 and RTX 5090 workers advertise the shared GPU resource:
+RTX 4090 與 RTX 5090 worker 都 advertise：
 
 ```text
 nvidia.com/gpu.shared: 4
 ```
 
-The RTX 4090 node also reports `nvidia.com/gpu: 0`, which is consistent with the cluster exposing the time-sliced/renamed shared resource rather than an allocatable exclusive `nvidia.com/gpu` resource.
-
-For the current deployment domain, Profile Job and production Job should therefore request:
+因此本輪 Profile Job 與 production Job 使用：
 
 ```yaml
 resources:
@@ -59,67 +53,187 @@ resources:
     nvidia.com/gpu.shared: "1"
 ```
 
-Do not silently switch between `nvidia.com/gpu.shared` and `nvidia.com/gpu` between dry-run and production. The sharing strategy/resource contract is part of the experiment metadata.
+且必須使用：
 
-## 4. NVIDIA runtime and monitoring state
+```yaml
+runtimeClassName: nvidia
+```
 
-The cluster currently exposes:
+Profile 與 production 不得在 `nvidia.com/gpu.shared` 與 `nvidia.com/gpu` 之間靜默切換。sharing strategy/resource name 必須記入 experiment metadata。
+
+## 4. Nsight Systems 2026 contract
+
+RTX 4090 與 RTX 5090 均已確認安裝並成功在 Kubernetes Pod 內使用：
 
 ```text
-RuntimeClass: nvidia
-RuntimeClass: nvidia-experimental
+NVIDIA Nsight Systems version 2026.4.1.191-264138605071v0
 ```
 
-The NVIDIA device plugin is Running on the verified RTX 4090 and RTX 5090 workers. DCGM exporter is also Running on both verified workers.
+Host installation root：
 
-This is sufficient to proceed to GPU scheduling/CUDA smoke tests on those two nodes, but it does not yet prove that the Nsight Systems profile image and host integration are compatible with each worker.
-
-## 5. Netdata readiness
-
-For the target workers:
-
-- RTX 4090 / `iccl-s3-251230`: Netdata child is Running.
-- RTX 5090 / `mirc516-20250605`: the latest Netdata child is Evicted.
-- RTX 3090: not auditable until the node is visible in the cluster.
-
-The RTX 5090 Netdata state is a blocker for formal energy inference. Profiling artifacts may still be collected for runtime-pipeline debugging, but the node must not enter production energy ranking until Netdata readiness and the required feature contract are restored and audited.
-
-The required follow-up remains:
-
-```bash
-kubectl -n netdata get pods -o wide
-python scripts/audit_netdata.py ...
+```text
+/opt/nvidia/nsight-systems-cli/2026.4.1
 ```
 
-and all required contexts/units/non-NaN values, including the expected GPU process/load features, must pass the Netdata contract.
+安裝 layout：
 
-## 6. Other nodes observed in the cluster
+```text
+2026.4.1/
+├── bin/
+│   └── nsys -> ../target-linux-x64/nsys
+├── host-linux-x64/
+└── target-linux-x64/
+    └── nsys
+```
 
-These nodes are currently outside the target RTX 3090/4090/5090 experiment set:
+Kubernetes 不應只掛載 `target-linux-x64/` 後直接執行 binary。Nsight Systems 2026.4.1 會要求透過安裝 layout 中的 launcher/symlink 啟動。已驗證的掛載方式是將完整 installation root 掛入 Pod：
 
-| Node | Status | Notes |
+```yaml
+volumeMounts:
+  - name: nsys-runtime
+    mountPath: /opt/pre6g/nsight
+    readOnly: true
+
+volumes:
+  - name: nsys-runtime
+    hostPath:
+      path: /opt/nvidia/nsight-systems-cli/2026.4.1
+      type: Directory
+```
+
+容器內固定使用：
+
+```text
+/opt/pre6g/nsight/bin/nsys
+```
+
+而不是依賴 host/container 的 `PATH`。兩台目前 shell 預設 `nsys` 仍可能解析到 CUDA 12.8 內附的 Nsight Systems 2024.6.2，因此正式 Pre6G profiling 一律使用上述絕對路徑。
+
+已驗證 trace configuration：
+
+```text
+--trace=cuda,nvtx,osrt
+--sample=none
+--cpuctxsw=none
+```
+
+RTX 5090 host 的 CPU profiling environment 因 `kernel.perf_event_paranoid=4` 不允許 perf-based CPU sampling，但上述設定已在 Pod 內成功產生 CUDA trace、CUDA API summary、CUDA GPU Kernel summary 與 OS Runtime summary，因此目前不需要為 Pre6G target-process CUDA tracing 放寬 CPU perf 權限。
+
+可重現 smoke manifest：
+
+```text
+k8s/nsys2026-rtx-smoke.yaml
+```
+
+## 5. Nsight Kubernetes E2E result
+
+2026-09-27 的 v3 smoke test 在兩個節點都完成：
+
+```text
+RTX4090 → Job Complete
+RTX5090 → Job Complete
+```
+
+兩個 Pod 都完成：
+
+1. CUDA 12.8 `nvcc` 編譯。
+2. 無 profiler 執行 CUDA vector-add。
+3. Nsight Systems 2026.4.1 launch target process。
+4. 產生非空 `profile.nsys-rep`。
+5. 產生 `profile.sqlite`。
+6. `cuda_api_sum` 成功。
+7. `cuda_gpu_kern_sum` 成功，辨識 500 次 `vector_add` kernel。
+8. `osrt_sum` 成功。
+9. 最終 marker `NSYS2026_SMOKE_PASS`。
+
+工程上另外確認：對同一份 `.nsys-rep` 連續執行多次 `nsys stats` 可能因既存 SQLite timestamp 檢查失敗。因此目前 smoke/collector 應以單次 stats invocation 一次指定所需 reports，或明確管理 `--force-export` / SQLite lifecycle。
+
+## 6. RTX 5090 DiskPressure resolution
+
+RTX 5090 曾因 root filesystem 使用率約 96% 而進入：
+
+```text
+DiskPressure=True
+node.kubernetes.io/disk-pressure:NoSchedule
+```
+
+當時 K3s kubelet default config 使用：
+
+```yaml
+evictionHard:
+  imagefs.available: 5%
+  nodefs.available: 5%
+```
+
+對約 1.8 TiB root filesystem，5% 約代表 90 GiB free threshold；當時約 76 GiB free，因此觸發 DiskPressure。
+
+本輪研究節點在 RTX 5090 加入本機 override：
+
+```text
+/var/lib/rancher/k3s/agent/etc/kubelet.conf.d/99-pre6g-eviction.conf
+```
+
+內容：
+
+```yaml
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+
+mergeDefaultEvictionSettings: true
+
+evictionHard:
+  nodefs.available: "50Gi"
+  imagefs.available: "50Gi"
+```
+
+重新啟動 `k3s-agent` 後，已驗證：
+
+```text
+DiskPressure=False
+Ready=True
+disk-pressure taint removed
+```
+
+原本 Pending 的 RTX 5090 GPU smoke Pod 隨後自動排程並完成。
+
+這個 override 是研究環境的 node-local operational setting，不代表 50 GiB 適用於所有 production cluster。正式長時間 profiling 前仍應監控剩餘磁碟與 artifact growth。
+
+## 7. NVIDIA runtime and monitoring state
+
+NVIDIA device plugin 與 DCGM exporter 在 RTX 4090/5090 基線檢查中均為 Running，且兩個節點的 GPU scheduling smoke test 已 PASS。
+
+Netdata 狀態需要在正式 120 秒 profiling 前重新 audit：
+
+- RTX 4090：先前基線為 Running，仍需重新執行 feature audit。
+- RTX 5090：先前 Netdata child 因 DiskPressure 被 Evicted；DiskPressure 已解除，但 Netdata child readiness 與 feature contract 尚未重新驗證。
+- RTX 3090：本輪 deferred。
+
+因此目前可進行 Nsight/runtime pipeline integration，但在 Netdata audit PASS 前，不應執行正式 energy inference/ranking。
+
+## 8. Other nodes observed in the cluster
+
+以下節點目前不屬於本輪 RTX 4090/5090 實驗候選集：
+
+| Node | Status at baseline | Notes |
 |---|---|---|
-| `gx10-c206` | Ready | advertises `nvidia.com/gpu.shared: 4`; Netdata child currently CrashLoopBackOff |
-| `icclz1` | NotReady | GPU shared resource exists but node is not eligible while NotReady |
-| `iccls2` | NotReady | NVIDIA-related Pods are not healthy; not eligible |
-| `icclz2` | Ready | control-plane node; not part of this GPU candidate set |
+| `gx10-c206` | Ready | 既有 ARM64/GX10 profiling reference，不混入本輪 RTX x86_64 candidate set |
+| `icclz1` | NotReady | 不 eligible |
+| `iccls2` | NotReady | 不 eligible |
+| `icclz2` | Ready | control-plane，不作 GPU candidate |
 
-These nodes must not be mixed into the RTX three-node experiment unless the experiment definition is explicitly expanded.
+## 9. Next integration gates
 
-## 7. Immediate integration-test gates
+在正式 120 秒 YOLO26 profiling 前依序完成：
 
-Before running the full 120-second three-node profiling experiment, complete the following gates in order:
+1. 重新驗證 RTX 4090/5090 Netdata child 與必要 feature contract。
+2. 決定跨節點 artifact persistence；目前 smoke test 的 `emptyDir` 只用於 E2E 驗證。
+3. 準備固定版本、固定 digest 的 x86_64 YOLO26 workload image。
+4. 先做 bounded YOLO26 Nsight 2026 compatibility run。
+5. 再執行每 node 固定 120 秒 Profile Job。
+6. 進入 period detection、Netdata timestamp alignment、runtime/power model 與 ranking。
+7. RTX 3090 儲存空間整理後，再重新加入 candidate set 並完整重跑相同 preflight。
 
-1. Restore/join the RTX 3090 worker and confirm its Kubernetes node name.
-2. Restore the RTX 5090 Netdata child and run the Netdata feature audit.
-3. Run a pinned GPU scheduling smoke test on RTX 4090 and RTX 5090, then RTX 3090 after it joins.
-4. From each Pod, verify the expected GPU model with `nvidia-smi`.
-5. Verify x86_64 Nsight Systems compatibility independently on each RTX worker.
-6. Only then generate one pinned Profile Job per eligible node and start the fixed 120-second profiling flow.
-
-## 8. Reproducible cluster audit commands
-
-Use the following commands to refresh this snapshot:
+## 10. Reproducible cluster audit commands
 
 ```bash
 echo "===== NODES ====="
@@ -146,8 +260,8 @@ for n in $(kubectl get nodes -o name); do
 done
 ```
 
-## 9. Compatibility note with Pre6G_profiling
+## 11. Compatibility note with Pre6G_profiling
 
-The existing `Pre6G_profiling` Kubernetes validation was primarily performed on the GX10 reference environment. The RTX 3090/4090/5090 workers are a separate x86_64 deployment target and require their own Nsight Systems/runtime smoke test.
+`Pre6G_profiling/docs/TARGET_SPEC.md` v1.2 remains the frozen GX10/ARM64 Phase 1–6 contract and should not be rewritten retroactively.
 
-A successful GX10 Profile Job must not be treated as proof that the same profiler image, host Nsight path, architecture, or tracing configuration is valid on all RTX workers.
+RTX 4090/5090 are a separate x86_64 deployment extension. The validated Nsight Systems 2026 behavior, mount layout and Kubernetes smoke results are documented separately in `Pre6G_profiling/docs/RTX_X86_NSIGHT_2026_EXTENSION.md`.
