@@ -1,21 +1,43 @@
 # 完整實驗程序
 
-本文件是 Pre6G_experiment 的正式實驗 SOP。每個 phase 都應留下可重現的設定與 evidence；任何 gate 失敗都要保存 failure reason，不可用零值、其他節點模型或未驗證 fallback 繼續自動 ranking。
+本文件是 Pre6G_experiment 的正式實驗 SOP。每個 phase 都要留下可重現設定與 evidence；任何 gate 失敗都保存明確原因，不以零值、其他節點模型或未驗證 fallback 繼續自動 ranking。
 
-## Phase 0：凍結契約
+目前平台主軸：
 
-1. 保存原始 Job、container image digest、dataset manifest/hash。
-2. 記錄候選 GPU node 的 sharing strategy、resource name、replicas、physical GPU UUID 與目前 allocation。
-3. 凍結 Nsight version、metric set、frequency、feature schema。
-4. 凍結 Netdata/DCGM telemetry schema 與 sampling/alignment policy。
-5. 保存 runtime model manifest。
-6. 依 node name + physical GPU UUID resolve 對應 power model manifest。
-7. power model 尚未定版時標記 profile-only。
-8. 定義 power model output semantics；第一版 automatic ranking 固定使用 node-total-power, unit=W。
+~~~text
+Opaque User Job
+  → Execution Contract
+  → Workload Semantic Discovery
+  → per-node dry-run
+  → target-process Nsight trace
+  → Netdata + DCGM aligned telemetry
+  → runtime / node-bound power prediction
+  → quality/model gate
+  → cross-node ranking
+  → production Job
+  → ground-truth evaluation
+~~~
+
+YOLO 是目前用來跑通平台流程的第一個 integration fixture，不是平台支援邊界。
+
+## Phase 00：Contract freeze
+
+保存：
+
+1. 原始 batch/v1 Job。
+2. application container identity。
+3. container image digest。
+4. dataset/version/hash；若 workload 不使用 dataset 則記錄 not-applicable。
+5. candidate GPU sharing strategy、resource name、replicas、physical GPU UUID。
+6. Nsight version與 trace contract。
+7. Netdata/DCGM feature schema、cadence、alignment policy。
+8. runtime model manifest；尚未定版則 profile-only。
+9. node-bound power model manifest；尚未取得則 status=unavailable。
+10. workload semantic metadata 與其來源：declared / adapter / runtime discovery / unknown。
 
 目前 RTX4090/RTX5090 integration baseline：
 
-~~~
+~~~text
 Architecture: x86_64
 Nsight Systems: 2026.4.1.191-264138605071v0
 Host install root: /opt/nvidia/nsight-systems-cli/2026.4.1
@@ -25,9 +47,9 @@ RuntimeClass: nvidia
 GPU resource: nvidia.com/gpu.shared
 ~~~
 
-不要依賴 PATH 中的裸 nsys。兩個 worker 的 CUDA toolkit 仍可能把 nsys 解析到舊版，因此 Profile Job 必須使用上述絕對路徑。
+不要依賴 PATH 中裸 nsys。
 
-## Phase 1：Cluster / clock / GPU preflight
+## Phase 01：Cluster / GPU scheduling preflight
 
 從 control-plane：
 
@@ -37,74 +59,66 @@ kubectl get runtimeclass
 kubectl get pods -A -o wide
 ~~~
 
-逐 node 驗證：
+逐 candidate node 確認：
 
-- node Ready。
-- shared GPU resource 存在。
-- candidate GPU UUID 與 model registry binding 一致。
-- host Nsight 2026 install root 存在。
-- artifact-store connectivity。
-- system clock synchronized。
+- Ready=True
+- shared GPU resource 存在
+- runtimeClass nvidia 可用
+- physical GPU UUID 可取得
+- taint/toleration 不會阻擋測試 Job
+- artifact/image path 有可用方案
 
-Clock check：
+GPU scheduling smoke 必須先於真實 workload。
 
-~~~bash
-timedatectl status | grep -E 'Local time|Universal time|System clock synchronized|NTP service'
-~~~
+## Phase 02：Nsight Systems 2026 preflight
 
-Required：
-
-~~~
-System clock synchronized: yes
-NTP service: active
-~~~
-
-RTX x86_64 Nsight preflight：
+RTX x86_64 要求：
 
 1. /opt/nvidia/nsight-systems-cli/2026.4.1 存在。
 2. Kubernetes 掛載完整 installation root。
-3. Pod 內以 /opt/pre6g/nsight/bin/nsys 執行。
+3. Pod 內使用 /opt/pre6g/nsight/bin/nsys。
 4. nsys --version 為 2026.4.1.191-264138605071v0。
-5. --trace=cuda,nvtx,osrt --sample=none --cpuctxsw=none 可產生非空 .nsys-rep。
-6. report 可匯出 SQLite 並解析 cuda_api_sum、cuda_gpu_kern_sum、osrt_sum。
-7. host perf-based CPU profiling 不可用時，不代表 CUDA trace 失敗；目前 contract 不要求 CPU sampling。
+5. trace=cuda,nvtx,osrt。
+6. sample=none。
+7. cpuctxsw=none。
+8. 可產生非空 .nsys-rep。
+9. report 可匯出 SQLite 並解析 CUDA kernel/API 與 OS runtime summary。
 
 可重現 smoke manifest：
 
-~~~
+~~~text
 k8s/nsys2026-rtx-smoke.yaml
 ~~~
 
-## Phase 2：Monitoring readiness
+## Phase 03：Nsight Kubernetes E2E smoke
 
-### 2.1 Netdata child
+在 RTX4090 / RTX5090 各跑一個小型 CUDA workload：
+
+- Job Complete
+- exact Nsight 2026 path/version
+- CUDA hardware trace
+- .nsys-rep
+- SQLite export
+- nsys stats
+- target kernels present
+
+只有兩台都 PASS 才進 monitoring/workload integration。
+
+## Phase 04：Monitoring and time alignment
+
+### 04A Netdata child
+
+Candidate node child 必須 Running/Ready。
 
 ~~~bash
-kubectl -n netdata get pods   -l 'app=netdata,role=child'   -o custom-columns='NAME:.metadata.name,NODE:.spec.nodeName,READY:.status.containerStatuses[0].ready,PHASE:.status.phase,RESTARTS:.status.containerStatuses[0].restartCount'
+kubectl -n netdata get pods   -l 'app=netdata,role=child'   -o wide
 ~~~
 
-Candidate node 必須：
+### 04B Netdata Parent
 
-~~~
-READY=true
-PHASE=Running
-~~~
+每個 candidate hostname 必須能透過 Parent 查 historical telemetry：
 
-目前部署的 child：
-
-- hostNetwork=true
-- bind localhost:19999
-- stream 到 Netdata Parent
-
-若 host-native Netdata 已佔用 19999，Kubernetes child 會 CrashLoopBackOff。先保存 native config，停止/disable native service，確認 port free，再刪除 failed child 讓 DaemonSet 重建。詳細流程見 monitoring-preflight.md。
-
-### 2.2 Netdata Parent
-
-確認 candidate hostname 出現在 Parent mirrored_hosts。
-
-Controller 正式查詢 historical telemetry 時走：
-
-~~~
+~~~text
 /host/<hostname>/api/v1/...
 ~~~
 
@@ -116,52 +130,61 @@ Netdata 負責：
 - CPU temperature
 - Top1/Top2/Top3 CPU
 
-使用 scripts/audit_netdata.py 做 system/CPU readiness audit。
-
-### 2.3 DCGM Exporter
-
-每個 NVIDIA candidate node 必須有 Ready exporter。
+### 04C DCGM device telemetry
 
 Required metrics：
 
-~~~
+~~~text
 DCGM_FI_DEV_GPU_UTIL
 DCGM_FI_DEV_FB_USED
 DCGM_FI_DEV_GPU_TEMP
 DCGM_FI_DEV_POWER_USAGE
 ~~~
 
-對應 canonical features：
+對應：
 
-~~~
+~~~text
 GPU Util%
 GPU Mem Used(MB)
 GPU Temp(°C)
 GPU Power(W)
 ~~~
 
-Exporter-side cadence：
+Exporter cadence：
 
-~~~
+~~~text
 DCGM_EXPORTER_INTERVAL=1000
 ~~~
 
-DaemonSet rollout 後要求：
+DaemonSet rollout gate：
 
-~~~
+~~~text
 DESIRED == CURRENT == READY == AVAILABLE == UPDATED
 MISSCHEDULED == 0
 ~~~
 
-如果 stale Pod 卡在 Ready=Unknown node 且 controller 已要求 deletion，先確認是監控 Pod，再依 monitoring-preflight.md 做 force-delete recovery。
+### 04D Clock synchronization
 
-### 2.4 Timestamp alignment gate
+Control-plane 與 candidate workers：
 
-正式 DCGM collection 使用 scripts/collect_dcgm.py，Netdata 用同一 absolute window 查 Parent。
-
-Alignment：
-
+~~~bash
+timedatectl status | grep -E 'Local time|Universal time|System clock synchronized|NTP service'
 ~~~
+
+Required：
+
+~~~text
+System clock synchronized: yes
+NTP service: active
+~~~
+
+### 04E Timestamp alignment
+
+Netdata historical samples與 DCGM active collection以 absolute UTC timestamp 對齊。
+
+Current gate：
+
+~~~text
 method = nearest timestamp
 tolerance <= 750 ms
 coverage >= 90%
@@ -169,11 +192,16 @@ max Netdata gap <= 2 s
 max DCGM gap <= 2 s
 ~~~
 
-使用 scripts/align_telemetry.py 產生 aligned CSV 與 quality JSON。
+使用：
+
+~~~text
+scripts/collect_dcgm.py
+scripts/align_telemetry.py
+~~~
 
 2026-09-27 RTX5090 validation：
 
-~~~
+~~~text
 DCGM samples = 20
 Netdata samples = 26
 Aligned = 20
@@ -182,64 +210,163 @@ Median |delta| = 284.8 ms
 Max |delta| = 490.5 ms
 ~~~
 
-這是 validation evidence，不是把上述數值當固定 production expectation。
+Top1/Top2 GPU 目前不是 validated core telemetry；若 power model 需要，該 model 維持 unavailable/schema_mismatch。
 
-### 2.5 Top GPU process metrics
+## Phase 05：Workload Intake & Semantic Discovery
 
-Top1 GPU% / Top2 GPU% 尚不是 validated core telemetry。
+這一階段不要求 runtime/power model ready，也不做 120 秒正式 profiling。
 
-若 node power model manifest 需要這兩欄：
+目標是證明平台可以接受 arbitrary batch/v1 Job，並把 execution 與 semantics 分離。
 
-~~~
-power.status = schema_mismatch / unavailable
-~~~
-
-直到有 validated per-process GPU collector。不得拿 device-wide GPU Util% 代替。
-
-## Phase 3：Job inspection 與 work estimate
+### 05A Generic Job inspection
 
 ~~~bash
 python -m pre6g_experiment inspect --job user-job.yaml
 ~~~
 
-輸出 work estimate 的 source、confidence 與缺少 metadata。禁止只看到 epochs 就猜 total iterations。
+輸出：
 
-YOLO training 若 metadata 完整：
+~~~text
+execution_contract
+  application container
+  image
+  command
+  args
+  env names
+  resources
+  volumes
 
+workload_spec
+  workload_family
+  adapter
+  parameters
+  work.unit
+  work.total_units
+  source
+  missing
+  runtime_discovery_required
 ~~~
-steps_per_epoch = ceil(training_samples / effective_batch_size)
-total_iterations = epochs × steps_per_epoch
+
+原始 command/args 不因 adapter 被改寫。
+
+### 05B Semantic discovery priority
+
+~~~text
+1. explicit canonical metadata
+2. registered workload adapter
+3. runtime discovery
+4. unknown
 ~~~
 
-仍必須確認 world size、gradient accumulation、sampler/drop-last 行為。
+Explicit metadata：
 
-## Phase 4：建立 Profile Jobs
-
-每個 candidate node 建立獨立名稱：
-
+~~~yaml
+pre6g.io/workload-family: vision-training
+pre6g.io/work-unit: training_iteration
+pre6g.io/total-work-units: "640"
+pre6g.io/workload-parameters-json: >-
+  {"model":"...","batch_size":16}
 ~~~
+
+未知 total work 仍 profileable。
+
+### 05C YOLO integration fixture
+
+目前第一個 adapter 是 YOLO，只用來驗證 semantic layer：
+
+- --model
+- --epochs
+- --batch / --batch-size
+- --imgsz / --img-size
+- --amp
+- dataset sample count annotation
+
+若 metadata 完整：
+
+~~~text
+steps_per_epoch = ceil(training_samples / batch)
+total_work_units = epochs × steps_per_epoch
+work_unit = training_iteration
+~~~
+
+### 05D Runtime discovery
+
+實際執行後比對 requested / discovered：
+
+- actual batch
+- dataloader length
+- steps per epoch
+- world size
+- gradient accumulation
+- observed work-unit boundary
+
+Static estimate 若與 runtime discovery 不一致，後續 total-runtime 外推不得直接使用未驗證 static 值。
+
+### 05E Short real execution
+
+同一 immutable workload image/config 在 RTX4090 / RTX5090 各做短時間 execution compatibility test。
+
+本階段先不要求 Nsight 120 秒，只確認：
+
+- image 可啟動
+- dataset/input 可存取
+- CUDA 可用
+- GPU shared resource 正常
+- application 真正進入 steady work
+- requested/discovered semantics 可保存
+
+詳細 contract 見 docs/workload-intake.md。
+
+## Phase 06：Short Profile Compatibility
+
+把 Phase 05 已通過的同一 application contract包進固定 Nsight 2026。
+
+Profile Job 必須：
+
+- deep-copy source Job
+- 保留 image/command/args/env/resources/volumes
+- pin candidate node
+- shared GPU contract不變
+- 只增加 profiler wrapper / artifact path / timeout
+- 使用 target-process trace
+- 先跑短窗口，例如 5–15 秒
+
+PASS：
+
+- application仍能正常進入 workload
+- .nsys-rep 完整
+- target CUDA kernels 可識別
+- Netdata/DCGM 同窗口可收集
+- timestamp quality pass
+- graceful/finalization行為可接受
+
+## Phase 07：Formal 120-second Dry-run
+
+每個 candidate node 建立獨立 Job：
+
+~~~text
 <source-name>-profile-<node>-<task-id>
 ~~~
 
-Profile Job：
+要求：
 
-- pin 到一個 node。
-- request 一個 shared GPU replica，例如 nvidia.com/gpu.shared: 1。
-- backoffLimit: 0。
-- activeDeadlineSeconds: 300。
-- 使用 fixed Nsight 2026 直接 launch 原始 command。
-- trace=cuda,nvtx,osrt。
-- sample=none。
-- cpuctxsw=none。
-- 從 application launch 起固定 capture 120 秒。
-- workload 提前自然完成時保存實際 capture。
-- report finalize 後再做離線 period detection。
-- 至少三個完整 cycles。
-- 保存 timestamps.json。
+- node pin
+- nvidia.com/gpu.shared: 1
+- backoffLimit: 0
+- activeDeadlineSeconds: 300
+- Nsight 2026 fixed path
+- trace=cuda,nvtx,osrt
+- sample=none
+- cpuctxsw=none
+- configured capture = 120 s
+- workload若提早自然完成則保存實際長度
+- report finalization後才做 offline detection
+- target cycles >= 3
+- 保存 timestamps.json
 
-建議 timestamp：
+建議 timestamps：
 
-~~~
+~~~text
 pre_window_start_ns
 application_start_ns
 profile_start_ns
@@ -250,147 +377,65 @@ application_end_ns
 post_window_end_ns
 ~~~
 
-nsys stats 對同一份 report 的 SQLite lifecycle 必須明確管理。已驗證做法是單次 invocation 要求多個 report。
+## Phase 08：Feature extraction, prediction and ranking
 
-線上模式可平行跑所有 candidate nodes；研究評估另做隨機節點順序、每節點至少三次 sequential repeats。
+### Runtime
 
-## Phase 5：Feature extraction
+Shared GPU只使用 target-process CUDA trace。
 
-### 5.1 Runtime features
+Generic runtime contract：
 
-從 target process CUDA kernel start timestamp 與 short-name ID 建立 runtime model input。
-
-Shared GPU 不得 fallback 到 device-wide GPU Metrics period detection。
-
-### 5.2 System/GPU telemetry
-
-1. 依 timestamps.json 查 Netdata Parent historical window。
-2. 同窗口保存 DCGM raw CSV。
-3. 正規化 canonical units。
-4. nearest-align Netdata/DCGM。
-5. 保存 raw + processed + alignment quality。
-6. 依該 node power model manifest 的 required_features 驗證完整性。
-
-### 5.3 Power-model routing
-
-依：
-
-~~~
-candidate node
-+
-physical GPU UUID
+~~~text
+work_unit
+predicted_runtime_ms_per_work_unit
+confidence
+ood
 ~~~
 
-resolve models/power/registry.yaml。
+runtime work_unit 必須與 workload spec 一致。
 
-Power manifest 必須：
+### Telemetry
 
-- status=ready
-- model_scope=node-bound
-- bound node match
-- bound GPU UUID match
-- feature schema match
-- target semantics=node-total-power
-- target unit=W
-- model artifact/checksum valid
-- required features available
-- OOD=false
-- confidence >= threshold
+1. Netdata Parent 查相同 absolute window。
+2. DCGM保存 raw CSV。
+3. canonical units。
+4. timestamp alignment。
+5. 保存 quality metadata。
 
-缺任何一項都不得自動 ranking。
+### Power
 
-### 5.4 Power prediction
+依 candidate node + physical GPU UUID resolve node-bound model。
 
-如果模型是 per-timestamp：
+目前 4090 / 5090 真實 power model formats尚未取得，因此保持 profile-only。
 
-~~~
-aligned feature vector at t
-        |
-        v
-node-specific power model
-        |
-        v
-P_node_predicted(t)
+第一版 ranking contract：
+
+~~~text
+target_semantics = node-total-power
+target_unit = W
 ~~~
 
-再做：
+### Total runtime / energy
 
-~~~
-P_incremental(t) = max(0, P_node_predicted(t) - P_idle_node)
-~~~
+只有 total_work_units 已知才能：
 
-並以 trapezoid integration 計算 observed-window energy。
-
-如果模型使用 window aggregates，只能依 model manifest 指定 aggregation/preprocessing 執行。
-
-## Phase 6：Prediction 與 ranking
-
-每個 node 產生 node-result.json。
-
-若 total iterations 已知：
-
-~~~
-predicted_total_runtime_s
-predicted_total_energy_j
-predicted_incremental_energy_j
+~~~text
+T_total ≈ runtime_per_work_unit × total_work_units
 ~~~
 
-若未知只報 per-iteration metrics。
+並進一步外推 total energy。
 
-Automatic ranking gate：
+未知 total work時只保存 per-work-unit evidence，預設不自動部署。
 
-~~~
-runtime model ready
-power model ready
-node/GPU binding exact match
-schema compatible
-OOD=false
-confidence >= threshold
-complete cycles >= 3
-clock synchronized
-Netdata samples >= 10
-max Netdata gap <= 2 s
-DCGM samples >= 10
-max DCGM gap <= 2 s
-alignment coverage >= 90%
-max alignment delta <= 750 ms
-required features complete
-~~~
+## Phase 09：Production Job and ground-truth evaluation
 
-第一版 ranking 使用：
+從原始 source Job deep-copy：
 
-~~~
-incremental_power = max(0, predicted_node_power - node_idle_power)
-
-energy_per_iteration =
-    incremental_power × runtime_per_iteration
-~~~
-
-如果 power prediction 是 time series，使用積分結果。
-
-Score：
-
-~~~
-score = predicted_incremental_energy_j × uncertainty_penalty
-~~~
-
-若兩節點差距小於合併 uncertainty interval，結果應是 tie/insufficient evidence，而不是強制選最小小數點值。
-
-如果只有一個 power model ready：
-
-- 可回報該節點 prediction。
-- 不應宣稱已完成可信的 cross-node energy ranking。
-
-## Phase 7：Production Job
-
-由 source Job deep-copy：
-
-- 新 Job 名稱。
-- 移除 server-managed metadata/status/selector。
-- 移除 profiling wrapper、collector、artifact mounts。
-- 加入 selected nodeSelector。
-- 保留原始 image、command、args、env、security context、resource 與資料 volume。
-- 保持和 Profile Job 相同 GPU sharing contract。
+- 新名稱
+- 移除 profiling wrapper / collector / dry-run timeout
+- 加 selected nodeSelector
+- 保留原始 image/command/args/env/resources/volumes
+- sharing contract與 profile相同
 
 先：
 
@@ -398,18 +443,14 @@ score = predicted_incremental_energy_j × uncertainty_penalty
 kubectl apply --dry-run=server -f production-job.yaml
 ~~~
 
-驗證後才正式 apply。
-
-## Phase 8：Ground truth 與評估
-
-Production Job 不啟用 Nsight，但仍收：
+正式執行後收：
 
 - runtime ground truth
-- Netdata system telemetry
-- DCGM GPU telemetry
-- node-level measured/derived energy ground truth
+- Netdata
+- DCGM
+- measured/derived energy
 
-至少報告：
+評估至少包含：
 
 - runtime MAPE
 - power MAE/MAPE
@@ -417,37 +458,46 @@ Production Job 不啟用 Nsight，但仍收：
 - ranking accuracy
 - best-node hit rate
 - energy regret
-- profiling overhead/cost
+- profiling overhead
 - decision latency
-- rejected/OOD/missing-feature rate
+- OOD/rejected/missing-feature rate
 - model-binding rejection rate
-- telemetry alignment coverage/delta distribution
+- alignment quality distribution
 
 ## Failure policy
 
 | 狀況 | 行為 |
 |---|---|
-| 某 node Profile Job 失敗 | 排除該 node，保存 failure reason |
-| 所有 node 失敗 | 不建立 production Job |
-| runtime model unavailable | profile-only，不排名 |
-| node-bound power model unavailable | 該 node 不進 energy ranking |
-| power model node/GPU binding mismatch | reject 該 node，不 fallback 到其他 model |
-| power target semantics 不一致 | 不跨 node ranking |
-| required telemetry feature 缺失 | 該 power model 不 ready |
-| Top GPU 是 model required feature 但 collector 未驗證 | schema_mismatch / unavailable |
-| Netdata/DCGM alignment gate 失敗 | 該次 telemetry invalid |
-| total iterations unknown | per-iteration result；預設不自動部署 |
-| shared GPU target process 無法辨識 | 排除該次 profile，不得用 device-wide period fallback |
-| sharing state 在 ranking 前顯著漂移 | prediction 失效；重新 profile |
-| prediction tie | 回報 tie/insufficient evidence 或交回 policy/default scheduler |
+| Unknown workload semantics | 允許 profiling；不做 total-job extrapolation |
+| total work未知 | per-work-unit result；預設不自動部署 |
+| semantic adapter不存在 | generic/profile-only；可做 runtime discovery |
+| runtime work_unit mismatch | reject prediction |
+| 某 node Profile Job失敗 | 排除 node並保存原因 |
+| 所有 node失敗 | 不建立 production Job |
+| runtime model unavailable | profile-only |
+| node-bound power model unavailable | profile-only / node不進 energy ranking |
+| power model binding mismatch | reject，不 fallback |
+| required telemetry missing | model not ready |
+| alignment gate失敗 | telemetry invalid |
+| shared GPU target process無法辨識 | 不得用 device-wide fallback |
+| sharing state明顯漂移 | 重新 profile |
+| prediction tie | tie/insufficient evidence |
 
-## 目前階段
+## 目前進度
 
-Monitoring Phase 已完成 RTX4090/RTX5090 baseline validation。下一個正式 phase：
+已完成：
 
-1. freeze YOLO26 x86_64 image digest。
-2. freeze dataset/version/hash。
-3. freeze workload parameters。
-4. 定義 iteration/work metadata。
-5. 做短時間 YOLO + Nsight 2026 compatibility run。
-6. 再進正式 120 秒 dry-run。
+~~~text
+Phase 01 GPU scheduling baseline
+Phase 02 Nsight 2026 preflight
+Phase 03 Nsight Kubernetes smoke
+Phase 04 Monitoring + timestamp alignment
+~~~
+
+目前進行：
+
+~~~text
+Phase 05 Workload Intake & Semantic Discovery
+~~~
+
+第一個 integration fixture 使用 YOLO26；後續會以 adapter方式擴充，而不修改 generic controller core。
