@@ -8,6 +8,20 @@
 4. 保存 runtime/power model manifest；未定版時標記 `profile-only`。
 5. 定義 power model 輸出是 node total watts、task incremental watts 或 total joules。
 
+目前 RTX 4090/5090 integration baseline 固定：
+
+```text
+Architecture: x86_64
+Nsight Systems: 2026.4.1.191-264138605071v0
+Host install root: /opt/nvidia/nsight-systems-cli/2026.4.1
+Container mount: /opt/pre6g/nsight
+Container CLI: /opt/pre6g/nsight/bin/nsys
+RuntimeClass: nvidia
+GPU resource: nvidia.com/gpu.shared
+```
+
+不要依賴 `PATH` 中的裸 `nsys`。兩個 worker 的 CUDA toolkit 仍可能把 `nsys` 解析到舊版 2024.6.2，因此 Profile Job 必須記錄並使用上述絕對路徑。
+
 ## Phase 1：Cluster preflight
 
 ```bash
@@ -17,7 +31,23 @@ kubectl get runtimeclass
 kubectl get pods -A -o wide
 ```
 
-逐 node 驗證 CUDA、Nsight environment、CUDA hardware trace、時鐘同步與 object-store connectivity。Shared GPU 是正式 deployment domain；Profile Job 與 production Job 必須使用相同 sharing strategy/resource contract。
+逐 node 驗證 CUDA、Nsight environment、CUDA target-process trace、時鐘同步與 artifact-store connectivity。Shared GPU 是正式 deployment domain；Profile Job 與 production Job 必須使用相同 sharing strategy/resource contract。
+
+RTX x86_64 節點的 Nsight Systems 2026 preflight 必須額外驗證：
+
+1. host installation root `/opt/nvidia/nsight-systems-cli/2026.4.1` 存在。
+2. Kubernetes 掛載完整 installation root，而不是只掛 `target-linux-x64/`。
+3. Pod 內以 `/opt/pre6g/nsight/bin/nsys` 執行。
+4. `nsys --version` 為 `2026.4.1.191-264138605071v0`。
+5. `--trace=cuda,nvtx,osrt --sample=none --cpuctxsw=none` 可產生非空 `.nsys-rep`。
+6. report 可匯出 SQLite 並解析 `cuda_api_sum`、`cuda_gpu_kern_sum`、`osrt_sum`。
+7. 若 host 的 perf-based CPU profiling 不可用，不代表 CUDA trace 失敗；目前 Pre6G profiling contract 不要求 CPU sampling。
+
+可重現的 RTX 4090/5090 smoke manifest：
+
+```text
+k8s/nsys2026-rtx-smoke.yaml
+```
 
 ## Phase 2：Netdata audit
 
@@ -26,6 +56,8 @@ kubectl get pods -A -o wide
 3. 驗證必要 contexts、units 與非 NaN values。
 4. 特別驗證 Top1/Top2 GPU；缺失就停止 energy inference。
 5. 保存 audit JSON 作為該次 experiment artifact。
+
+只要任一候選節點的 Netdata child 不 Ready，就只能繼續做 runtime/profile pipeline debug，不得把該節點納入正式 energy ranking。
 
 ## Phase 3：Job inspection 與 work estimate
 
@@ -49,11 +81,21 @@ Profile Job：
 - request 一個 shared GPU replica，例如 `nvidia.com/gpu.shared: 1`。
 - `backoffLimit: 0`。
 - `activeDeadlineSeconds: 300`，避免初始化、Nsight finalization 或上傳永久卡住。
-- 用 Nsight 直接 launch 原始 command。
+- 用固定版本 Nsight 直接 launch 原始 command。
+- RTX 4090/5090 使用完整 `2026.4.1` installation root mount 與 `/opt/pre6g/nsight/bin/nsys`。
+- profiling trace 使用 `cuda,nvtx,osrt`，並關閉 CPU sampling/context-switch sampling。
 - 從 Nsight launch 原始 application 起固定 profiling 120 秒；若 workload 提前自然完成，保存實際 capture 長度，並在匯出後記錄實際 CUDA-active span。
 - 完成 report/SQLite 後，在 7/9/12/15/20/30 秒 prefix 離線執行 detector；30/60/90/120 秒區段只作長期 stability/load-drift gate。
 - 至少三個完整 cycles；固定 capture 不代表 runtime model 可以改吃 120 秒 aggregate feature。
 - collector 驗證 report 並上傳。
+
+`nsys stats` 對同一份 `.nsys-rep` 的 SQLite lifecycle 必須明確管理。已驗證的 smoke path 使用單次 invocation 一次要求多個 report：
+
+```bash
+nsys stats   --report cuda_api_sum   --report cuda_gpu_kern_sum   --report osrt_sum   profile.nsys-rep
+```
+
+如果 collector 需要重複 export，必須明確刪除/版本化舊 SQLite，或使用合適的 force-export policy，避免 stale SQLite timestamp 導致 stats 階段失敗。
 
 線上模式可平行跑所有 candidate nodes；研究評估另做隨機節點順序、每節點至少三次的 sequential repeats。
 
