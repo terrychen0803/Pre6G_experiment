@@ -1,5 +1,5 @@
 {
-  "schema_version": "pre6g.node-results/v3",
+  "schema_version": "pre6g.node-results/v4",
   "synthetic": true,
   "task_id": "yolo26-demo-001",
   "nodes": [
@@ -25,7 +25,8 @@
         "observed_cuda_active_seconds": 120.0,
         "wall_timeout_seconds": 300.0,
         "detector_windows_seconds": [7, 9, 12, 15, 20, 30],
-        "predicted_runtime_ms_per_iteration": 52.0,
+        "work_unit": "training_iteration",
+        "predicted_runtime_ms_per_work_unit": 52.0,
         "emission_horizon_seconds": 15.0,
         "confidence": 0.95,
         "ood": false
@@ -86,7 +87,8 @@
         "observed_cuda_active_seconds": 120.0,
         "wall_timeout_seconds": 300.0,
         "detector_windows_seconds": [7, 9, 12, 15, 20, 30],
-        "predicted_runtime_ms_per_iteration": 39.0,
+        "work_unit": "training_iteration",
+        "predicted_runtime_ms_per_work_unit": 39.0,
         "emission_horizon_seconds": 12.0,
         "confidence": 0.94,
         "ood": false
