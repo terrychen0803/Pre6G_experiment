@@ -36,6 +36,27 @@ User batch/v1 Job
 - [YOLO26 具體範例](docs/yolo26-walkthrough.md)
 - [實際 k3s 叢集基線與 RTX 多節點 readiness](docs/cluster-baseline.md)
 - [High-load trace 實測依據](docs/evidence/high-load-trace-results.md)
+- [RTX 4090/5090 Nsight Systems 2026 smoke manifest](k8s/nsys2026-rtx-smoke.yaml)
+
+## 已驗證的 RTX profiling baseline
+
+2026-09-27 已在 k3s 的 RTX 4090 與 RTX 5090 worker 完成 CUDA + Nsight Systems E2E smoke test。兩個節點目前的 profiling contract 為：
+
+```text
+Architecture: x86_64
+RuntimeClass: nvidia
+GPU resource: nvidia.com/gpu.shared: 1
+Nsight Systems: 2026.4.1.191-264138605071v0
+Host install root: /opt/nvidia/nsight-systems-cli/2026.4.1
+Container entrypoint: /opt/pre6g/nsight/bin/nsys
+Trace: cuda,nvtx,osrt
+CPU sampling: disabled
+CPU context-switch sampling: disabled
+```
+
+Nsight 2026 必須掛載完整 installation root，再從 `bin/nsys` 啟動；不要只掛載 `target-linux-x64` 後直接執行 binary。兩個節點都已驗證可產生非空 `.nsys-rep` 與 SQLite，並成功解析 CUDA API、CUDA GPU Kernel 與 OS Runtime summaries。
+
+RTX 3090 暫不在本輪 integration scope；其儲存空間整理完成後再依相同 preflight 流程重新加入。
 
 ## 本機示範
 
@@ -46,17 +67,11 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-python -m pre6g_experiment inspect \
-  --job examples/yolo26/user-job.yaml
+python -m pre6g_experiment inspect   --job examples/yolo26/user-job.yaml
 
-python -m pre6g_experiment decide \
-  --job examples/yolo26/user-job.yaml \
-  --results examples/yolo26/synthetic-node-results.json \
-  --output generated/yolo26-production-job.yaml \
-  --allow-synthetic
+python -m pre6g_experiment decide   --job examples/yolo26/user-job.yaml   --results examples/yolo26/synthetic-node-results.json   --output generated/yolo26-production-job.yaml   --allow-synthetic
 
-kubectl apply --dry-run=server \
-  -f generated/yolo26-production-job.yaml
+kubectl apply --dry-run=server   -f generated/yolo26-production-job.yaml
 ```
 
 `synthetic-node-results.json` 只用來走通 decision path。真正部署時必須由 profile collector、runtime model adapter 與 energy model adapter 產生同一份 schema。
@@ -71,6 +86,7 @@ kubectl apply --dry-run=server \
 - 節點結果驗證、能量計算與 production Job 產生器。
 - YOLO26 端到端範例。
 - Kubernetes RBAC 與 namespace 範例。
+- RTX 4090/5090 的 Nsight Systems 2026.4.1 Kubernetes smoke-test baseline。
 
 這一版不包含：
 
@@ -79,6 +95,7 @@ kubectl apply --dry-run=server \
 - NVIDIA driver、Nsight Systems 或 Netdata image。
 - 完整 Kubernetes controller reconcile loop。
 - 尚未定版的 production runtime model bundle；目前 high-load trace 實驗為候選模型依據。
+- 可直接用於正式 profiling 的固定 digest x86_64 YOLO26 training image；目前仍需完成 workload image 凍結。
 
 ## 安全原則
 
