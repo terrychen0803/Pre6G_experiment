@@ -25,7 +25,6 @@ spec:
             - -lc
             - |
               set -euxo pipefail
-
               NSYS=/opt/pre6g/nsight/bin/nsys
               OUT=/artifacts/profile
 
@@ -36,7 +35,7 @@ spec:
               uname -m
 
               echo "===== GPU ====="
-              nvidia-smi                 --query-gpu=name,uuid,driver_version,memory.total                 --format=csv,noheader
+              nvidia-smi --query-gpu=name,uuid,driver_version,memory.total --format=csv,noheader
 
               echo "===== CUDA COMPILER ====="
               nvcc --version
@@ -49,11 +48,7 @@ spec:
               #include <stdio.h>
               #include <stdlib.h>
 
-              __global__ void vector_add(
-                  const float *a,
-                  const float *b,
-                  float *c,
-                  int n)
+              __global__ void vector_add(const float *a, const float *b, float *c, int n)
               {
                   int i = blockIdx.x * blockDim.x + threadIdx.x;
                   if (i < n) {
@@ -64,8 +59,7 @@ spec:
               static void check_cuda(cudaError_t err, const char *where)
               {
                   if (err != cudaSuccess) {
-                      fprintf(stderr, "CUDA error at %s: %s\n",
-                              where, cudaGetErrorString(err));
+                      fprintf(stderr, "CUDA error at %s: %s\n", where, cudaGetErrorString(err));
                       exit(1);
                   }
               }
@@ -105,7 +99,7 @@ spec:
               /tmp/cuda_smoke
 
               echo "===== NSYS PROFILE ====="
-              "${NSYS}" profile                 --trace=cuda,nvtx,osrt                 --sample=none                 --cpuctxsw=none                 --force-overwrite=true                 --output="${OUT}"                 /tmp/cuda_smoke
+              "${NSYS}" profile --trace=cuda,nvtx,osrt --sample=none --cpuctxsw=none --force-overwrite=true --output="${OUT}" /tmp/cuda_smoke
 
               echo "===== PROFILE ARTIFACT ====="
               ls -lah /artifacts
@@ -113,7 +107,7 @@ spec:
 
               echo "===== NSYS STATS ====="
               rm -f "${OUT}.sqlite"
-              "${NSYS}" stats                 --report cuda_api_sum                 --report cuda_gpu_kern_sum                 --report osrt_sum                 "${OUT}.nsys-rep"
+              "${NSYS}" stats --report cuda_api_sum --report cuda_gpu_kern_sum --report osrt_sum "${OUT}.nsys-rep"
 
               echo "===== SQLITE ARTIFACT ====="
               test -s "${OUT}.sqlite"
@@ -166,7 +160,6 @@ spec:
             - -lc
             - |
               set -euxo pipefail
-
               NSYS=/opt/pre6g/nsight/bin/nsys
               OUT=/artifacts/profile
 
@@ -177,7 +170,7 @@ spec:
               uname -m
 
               echo "===== GPU ====="
-              nvidia-smi                 --query-gpu=name,uuid,driver_version,memory.total                 --format=csv,noheader
+              nvidia-smi --query-gpu=name,uuid,driver_version,memory.total --format=csv,noheader
 
               echo "===== CUDA COMPILER ====="
               nvcc --version
@@ -190,11 +183,7 @@ spec:
               #include <stdio.h>
               #include <stdlib.h>
 
-              __global__ void vector_add(
-                  const float *a,
-                  const float *b,
-                  float *c,
-                  int n)
+              __global__ void vector_add(const float *a, const float *b, float *c, int n)
               {
                   int i = blockIdx.x * blockDim.x + threadIdx.x;
                   if (i < n) {
@@ -205,8 +194,7 @@ spec:
               static void check_cuda(cudaError_t err, const char *where)
               {
                   if (err != cudaSuccess) {
-                      fprintf(stderr, "CUDA error at %s: %s\n",
-                              where, cudaGetErrorString(err));
+                      fprintf(stderr, "CUDA error at %s: %s\n", where, cudaGetErrorString(err));
                       exit(1);
                   }
               }
@@ -246,7 +234,7 @@ spec:
               /tmp/cuda_smoke
 
               echo "===== NSYS PROFILE ====="
-              "${NSYS}" profile                 --trace=cuda,nvtx,osrt                 --sample=none                 --cpuctxsw=none                 --force-overwrite=true                 --output="${OUT}"                 /tmp/cuda_smoke
+              "${NSYS}" profile --trace=cuda,nvtx,osrt --sample=none --cpuctxsw=none --force-overwrite=true --output="${OUT}" /tmp/cuda_smoke
 
               echo "===== PROFILE ARTIFACT ====="
               ls -lah /artifacts
@@ -254,7 +242,7 @@ spec:
 
               echo "===== NSYS STATS ====="
               rm -f "${OUT}.sqlite"
-              "${NSYS}" stats                 --report cuda_api_sum                 --report cuda_gpu_kern_sum                 --report osrt_sum                 "${OUT}.nsys-rep"
+              "${NSYS}" stats --report cuda_api_sum --report cuda_gpu_kern_sum --report osrt_sum "${OUT}.nsys-rep"
 
               echo "===== SQLITE ARTIFACT ====="
               test -s "${OUT}.sqlite"
