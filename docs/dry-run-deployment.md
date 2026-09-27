@@ -2,22 +2,74 @@
 
 ## 目的與不變條件
 
-Controller 不直接修改或執行使用者提交的原始 Job。它為每個候選節點 deep-copy 一份獨立 Profile Job，保留 application image、command、args、env、security context、resource requests/limits 與資料 volumes，只加入 profiling wrapper、節點固定、artifact volume 和 dry-run 停止政策。
+Controller 不直接修改使用者提交的原始 Job。它為每個 candidate node deep-copy 一份獨立 Profile Job，保留 application image、command、args、env、security context、resource requests/limits 與 data volumes，只加入：
 
-Profile Job 和最後的 production Job 必須使用相同 GPU sharing strategy 與 resource name，例如 `nvidia.com/gpu.shared: 1`。Dry-run 的 output/checkpoint 必須寫到隔離路徑，不能覆寫 production checkpoint 或修改共享 dataset。
+- profiling wrapper
+- node pin
+- artifact path
+- dry-run timeout / stop policy
+- Pre6G metadata
+
+Workload adapter 不參與 command reconstruction。Semantic discovery 與 execution contract 必須解耦。
+
+Profile Job 和最後的 production Job 必須使用相同 GPU sharing strategy 與 resource name，例如：
+
+~~~yaml
+requests:
+  nvidia.com/gpu.shared: "1"
+limits:
+  nvidia.com/gpu.shared: "1"
+~~~
+
+Dry-run output/checkpoint 必須寫到隔離路徑，不能覆寫 production checkpoint 或修改共享 dataset。
+
+## Phase 05 與 Phase 06/07 的差異
+
+### Phase 05
+
+只驗證 generic workload intake + short real execution：
+
+- image 可啟動
+- dataset/input 可存取
+- CUDA/GPU resource 正常
+- application 真的進入 workload
+- runtime discovery metadata 可保存
+
+不要求 Nsight 120 秒。
+
+### Phase 06
+
+同一 execution contract 加入 Nsight wrapper，先做 5–15 秒 short profile compatibility。
+
+### Phase 07
+
+Phase 06 PASS 後才做 fixed 120-second formal dry-run。
 
 ## Controller 產生每節點 Job
 
-假設候選節點是 `worker-4090` 和 `worker-5090`，Controller 產生：
+假設 source Job：
 
-```text
-yolo26-train-profile-worker-4090-<task-id>
-yolo26-train-profile-worker-5090-<task-id>
-```
+~~~text
+<source-name>
+~~~
 
-每份 Job 至少套用：
+candidate nodes：
 
-```yaml
+~~~text
+worker-4090
+worker-5090
+~~~
+
+產生：
+
+~~~text
+<source-name>-profile-worker-4090-<task-id>
+<source-name>-profile-worker-5090-<task-id>
+~~~
+
+每份 Job 至少：
+
+~~~yaml
 spec:
   backoffLimit: 0
   activeDeadlineSeconds: 300
@@ -31,92 +83,172 @@ spec:
       restartPolicy: Never
       nodeSelector:
         kubernetes.io/hostname: worker-5090
-```
+~~~
 
-`nodeSelector` 保證這份 dry-run 只在指定候選節點執行。Controller 應先檢查該節點 Ready、GPU sharing label/resource、taint/toleration、資料 volume 與 artifact store；不符合者不建立或立即排除。
+nodeSelector 保證這份 dry-run 只在指定 candidate node 執行。
 
 ## Application command 包裝
 
-不要由 sidecar attach 已啟動的 PID。Profile Job 將 application container 的原始 command/args 保存到 manifest，再讓 Nsight 直接 launch 它：
+不要 sidecar attach 已啟動 PID。
 
-```text
-nsys profile
-  --trace=cuda,nvtx
+Source application：
+
+~~~text
+<original-command> <original-args>
+~~~
+
+Profile Job：
+
+~~~text
+/opt/pre6g/nsight/bin/nsys profile
+  --trace=cuda,nvtx,osrt
   --sample=none
   --cpuctxsw=none
   --output=/artifacts/<task-id>/<node>/<attempt>/profile
   --
   <original-command> <original-args>
-```
+~~~
 
-正式實作可用 image entrypoint wrapper 組合參數，但不能經過 shell 字串重新解析使用者 command。`nvtx` 可以收集作研究 audit；detector/runtime model 不得讀 NVTX。Profile image 必須固定 Nsight 版本並記錄 driver、CUDA、container image digest 與完整 argv。
+重要：
+
+- original argv 必須逐項保存。
+- 不要把 argv join 成 shell 字串再重新 parse。
+- adapter 不能改寫 argv。
+- fixed Nsight path 必須使用 2026 installation。
+- NVTX 可作 audit，但 runtime detector/model 不依賴 NVTX。
+
+## Semantic artifacts
+
+建立 Profile Job 前保存：
+
+~~~text
+source-job.yaml
+execution-contract.json
+workload-spec.json
+~~~
+
+Runtime discovery 後再保存：
+
+~~~text
+runtime-discovery.json
+~~~
+
+如果 workload semantics unknown：
+
+- Profile Job 仍可執行。
+- runtime discovery可嘗試補充 work unit / total work。
+- 無法確認 total work時，後續只保留 per-cycle/per-work-unit evidence。
 
 ## Pod 內角色
 
-MVP 可由 application/profile container 完成 Nsight capture，再由同 Pod collector sidecar 處理 artifacts：
+MVP：
 
-```text
+~~~text
 Profile Pod
 ├── profiler/application container
 │   └── nsys profile -- original application
 ├── collector sidecar
-│   └── 等待 completion marker、export SQLite、抽 feature、上傳
+│   └── wait -> validate -> export -> upload
 └── shared artifact volume
-```
+~~~
 
-兩個 container 透過共享 artifact volume 協調。Profiler 在 report 完成後原子寫入 `capture.complete`; collector 不以檔案剛出現作為完成條件，避免讀到仍在 finalization 的 report。
+Profiler 在 report 完成後原子寫 capture.complete。Collector 不以檔案剛出現作為 report-ready 訊號。
 
-Netdata child 仍由每個節點的既有 DaemonSet 持續監控，不放入 Profile Pod，也不隨 dry-run 啟停。Controller/collector 只使用保存的 absolute timestamps 查詢相同節點的歷史窗口。
+Netdata 與 DCGM 都是既有 node monitoring components，不跟單次 Job 啟停。
 
-## 固定 120 秒 profiling
+## Fixed 120-second formal profiling
 
-`configured_capture_seconds=120` 從 Nsight launch 原始 application 後開始計算。這個起點可以由 wrapper 可靠記錄；第一個 target CUDA kernel 必須等 report 匯出後才能精確定位。Collector 另外記錄 `observed_cuda_active_seconds`，若初始化耗掉太多時間而沒有足夠 CUDA prefix，quality gate 應拒絕或重新 profile。整個 Job 仍受 `activeDeadlineSeconds=300` 限制。
+Phase 07：
 
-```text
+~~~text
+configured_capture_seconds = 120
+activeDeadlineSeconds = 300
+~~~
+
+流程：
+
+~~~text
 container start
-  → nsys/application start
-  → fixed 120-second profiling wall window
-  → graceful application stop
-  → nsys report finalization
-  → capture.complete
-```
+  -> nsys/application start
+  -> fixed 120 s profile wall window
+  -> graceful application stop
+  -> nsys report finalization
+  -> capture.complete
+~~~
 
-若 workload 在 120 秒前自然完成，保存實際長度，不為湊滿時間重啟。若沒有足夠 target CUDA activity、無法正常 finalization，或 report 不完整，該節點結果失敗。
+若 workload 在 120 秒前自然完成：
 
-停止時先請 application 正常離開，再給 grace period；最後手段才終止 process tree。不能直接 kill Nsight 主程序後假設 report 可用。對不支援 graceful stop 的 image，Profile Job 必須標記停止方式與 report integrity，並在上線前做一次相容性測試。
+- 保存實際 capture 長度。
+- 不為了湊滿 120 秒自動重啟。
+- 若 target CUDA activity 不足，quality gate fail。
+
+對無法 graceful stop 的 image，必須先在 Phase 06 做相容性驗證。
 
 ## Collector 後處理
 
-Collector 收到完成 marker 後執行：
+Collector：
 
-1. 驗證 `.nsys-rep` 存在、非空且可由相同版本 Nsight 開啟。
-2. 匯出 `profile.sqlite`，並保存 export log。
-3. 驗證 `CUPTI_ACTIVITY_KIND_KERNEL`、`StringIds`、target `globalPid/contextId` 與 hardware-trace diagnostic。
-4. 離線分析 7/9/12/15/20/30 秒 prefixes，選出符合 confidence 與 two-window stability 的 emission horizon。
-5. 將 120 秒資料切成 30 秒區段，檢查 period、kernel event rate、busy fraction 與 sharing/load drift；後段只作 gate，除非另有重新訓練的長窗口模型。
-6. 依 timestamps 查詢既有 Netdata child，產生 18-feature samples 與 P(t)。
-7. 寫出 `node-result.json`、checksums，再上傳 object/RWX storage。
+1. 驗證 .nsys-rep 存在、非空、可由相同版本 Nsight 開啟。
+2. 匯出 profile.sqlite。
+3. 驗證 CUDA kernel tables、StringIds、target process/context identity。
+4. 離線分析 7/9/12/15/20/30 s prefixes。
+5. 檢查 period/load drift。
+6. 依 absolute timestamps 查 Netdata Parent。
+7. 保存同窗口 DCGM samples。
+8. nearest-align Netdata/DCGM。
+9. 產生 canonical telemetry features。
+10. 依 node-bound power model manifest 驗證 required features。
+11. 產生 node-result.json + checksums。
 
-如果 target process 無法識別、不是 CUDA hardware trace、period/load regime 顯著漂移、模型 OOD 或 Netdata feature 不完整，保留 artifacts 但不讓該節點進入 ranking。
+Current telemetry ownership：
+
+~~~text
+Netdata -> CPU/system/Top CPU
+DCGM    -> GPU Util/FB/Temp/Power
+Nsight  -> target-process CUDA behavior
+~~~
+
+Top1/Top2 GPU若 model required 但 collector尚未驗證，power model不可 ready。
 
 ## 建立與監看
 
-Controller 先用 server-side dry-run 驗證產生的 Kubernetes 物件，再建立 Job：
+Controller 先 server-side dry-run：
 
-```bash
-kubectl apply --dry-run=server -f generated/yolo26-profile-worker-4090.yaml
-kubectl apply --dry-run=server -f generated/yolo26-profile-worker-5090.yaml
+~~~bash
+kubectl apply --dry-run=server -f generated/profile-worker-4090.yaml
+kubectl apply --dry-run=server -f generated/profile-worker-5090.yaml
+~~~
 
-kubectl apply -f generated/yolo26-profile-worker-4090.yaml
-kubectl apply -f generated/yolo26-profile-worker-5090.yaml
+再建立：
 
-kubectl -n experiments get jobs,pods -l pre6g.io/task-id=<task-id> -o wide
-kubectl -n experiments logs job/yolo26-train-profile-worker-5090-<task-id> -c profiler
-kubectl -n experiments logs job/yolo26-train-profile-worker-5090-<task-id> -c collector
-```
+~~~bash
+kubectl apply -f generated/profile-worker-4090.yaml
+kubectl apply -f generated/profile-worker-5090.yaml
 
-候選節點可以平行 dry-run，讓決策延遲接近一次 120 秒 profiling 加上初始化/finalization；研究評估模式則可隨機節點順序並做多次 repeat，避免時間漂移造成偏差。
+kubectl -n experiments get jobs,pods   -l pre6g.io/task-id=<task-id> -o wide
+~~~
+
+研究評估模式可做 sequential repeats / randomized node order；線上系統則可平行 candidate dry-run 以降低 decision latency。
 
 ## 從 dry-run 回到 production
 
-所有候選節點結果完成 gate 後，Controller 排名並再次從原始 Job deep-copy production Job。Production Job 不包含 Nsight wrapper、collector、artifact volume 或 dry-run timeout，只加入所選節點的 `nodeSelector` 和 placement label。若所有 Profile Job 失敗、模型未 ready 或證據不足，平台不應偽造最佳節點。
+完成 gate 後再次從原始 Job deep-copy production Job：
+
+- 不含 Nsight wrapper。
+- 不含 collector。
+- 不含 profiling artifact volume。
+- 不含 dry-run timeout。
+- 加 selected nodeSelector。
+- 保留 source application contract。
+- sharing contract與 profile一致。
+
+如果：
+
+- total work未知且 policy需要 total-job ranking，
+- runtime model unavailable，
+- power model unavailable，
+- model binding mismatch，
+- telemetry quality fail，
+- target process trace invalid，
+
+則不偽造最佳節點。
