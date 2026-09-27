@@ -1,22 +1,20 @@
-# Netdata feature contract
+# Telemetry feature contract
 
-## 部署假設
+## Scope
 
-每個 GPU worker 應有一個 Netdata child。實驗前必須實際稽核，而不是只確認 DaemonSet desired count。
+The production monitoring path is split by responsibility:
 
-```bash
-kubectl -n netdata get daemonset,pods -o wide
-kubectl -n netdata get pods -l app.kubernetes.io/component=child \
-  -o custom-columns=NAME:.metadata.name,NODE:.spec.nodeName,READY:.status.containerStatuses[0].ready
-```
+- Netdata Parent/Child: system, CPU, memory, temperature, and top CPU-process telemetry.
+- NVIDIA DCGM Exporter: NVIDIA device-level GPU telemetry.
+- Nsight Systems 2026: target-process CUDA behavior for runtime prediction.
 
-還要逐 node 查 API，因為 Pod Ready 不代表 NVIDIA/sensor/apps collectors 都有資料。
+Do not require Netdata itself to expose NVIDIA devices. The validated Netdata child container does not use runtimeClassName=nvidia, does not expose /dev/nvidia*, and does not contain nvidia-smi.
 
-## Schema v1
+## Canonical feature schema
 
-必要欄位：
+The platform preserves the original 18-field logical schema:
 
-```text
+~~~
 CPU User%
 CPU System%
 CPU IOWait%
@@ -35,69 +33,216 @@ Top2 CPU%
 Top3 CPU%
 Top1 GPU%
 Top2 GPU%
-```
+~~~
 
-Node/GPU metrics 可由 Netdata system、sensors 與 `nvidia_smi` contexts 取得。Top CPU 可由 `apps.plugin`/processes function 取得。
+The first 16 fields have a validated collection path.
 
-目前 Netdata NVIDIA GPU collector 主要是 per-GPU，不保證提供 Top1/Top2 per-process GPU utilization。若 energy model 需要真實 Top GPU，必須部署額外 node collector，例如 `nvidia-smi pmon` 或 DCGM process metrics，將輸出接回 feature service 或 Netdata custom collector。
+Top1 GPU% and Top2 GPU% are optional platform extensions until a validated per-process GPU collector is deployed. If a specific node-bound power model lists either field as required, that model is not ready for automatic ranking.
 
-## 時間窗口
+## Source mapping
 
-Netdata 持續收集，不由單次 Job 啟停。Wrapper 保存 UTC Unix nanoseconds：
+### Netdata
 
-```text
-pre_window_start
-application_start
-profile_start
-steady_window_start
-steady_window_end
-profile_end
-application_end
-```
+Netdata provides:
 
-查詢 historical API 時使用 profile/steady window 的 absolute `after`、`before`，並關閉不必要的時間對齊。建議同時保留：
+~~~
+CPU User%
+CPU System%
+CPU IOWait%
+Load 1min
+Load 5min
+Load 15min
+Mem Used(MB)
+Mem Free(MB)
+CPU Temp(°C)
+Top1 CPU%
+Top2 CPU%
+Top3 CPU%
+~~~
 
-- 5～10 秒 pre-run background window。
-- 至少 10 個 Netdata samples 的 workload window。
-- 2 秒 post-roll。
+The controller queries historical data through the Netdata Parent and target hostname:
 
-若 dry-run 的單一 iteration 是毫秒級，仍要重複足夠 iterations 讓 Netdata 取得可用窗口。
+~~~
+/host/<hostname>/api/v1/...
+~~~
+
+Child agents intentionally bind localhost:19999 and stream to the Parent.
+
+### DCGM Exporter
+
+DCGM provides:
+
+| Canonical feature | DCGM metric |
+|---|---|
+| GPU Util% | DCGM_FI_DEV_GPU_UTIL |
+| GPU Mem Used(MB) | DCGM_FI_DEV_FB_USED |
+| GPU Temp(°C) | DCGM_FI_DEV_GPU_TEMP |
+| GPU Power(W) | DCGM_FI_DEV_POWER_USAGE |
+
+Validated exporter cadence:
+
+~~~
+DCGM_EXPORTER_INTERVAL=1000
+~~~
+
+The collector should address the exporter Pod for the intended node directly when node identity matters; a load-balanced Service must not accidentally return telemetry from another node.
+
+## Collector metadata
+
+Each canonical feature must preserve source metadata. Example:
+
+~~~json
+{
+  "canonical_name": "GPU Util%",
+  "source": "dcgm",
+  "source_metric": "DCGM_FI_DEV_GPU_UTIL",
+  "unit": "%"
+}
+~~~
+
+Feature names used by the model must not depend on collector-specific naming.
+
+## Time contract
+
+All experiment timestamps use UTC Unix nanoseconds.
+
+The wrapper should save:
+
+~~~
+pre_window_start_ns
+application_start_ns
+profile_start_ns
+steady_window_start_ns
+steady_window_end_ns
+profile_end_ns
+application_end_ns
+post_window_end_ns
+~~~
+
+Netdata continuously collects and is queried after the run with absolute after/before timestamps.
+
+DCGM Exporter is not treated as the historical database for this workflow. scripts/collect_dcgm.py actively polls the selected exporter during the experiment and stores each sample.
+
+The DCGM sample timestamp is the midpoint between request start and response end:
+
+~~~
+sample_timestamp_ns = (request_start_ns + request_end_ns) / 2
+~~~
+
+This reduces timestamp bias from API request latency.
+
+## Alignment contract
+
+Do not require exact timestamp equality between Netdata and DCGM.
+
+Current alignment policy:
+
+~~~
+method = nearest timestamp
+tolerance = 750 ms
+minimum coverage = 90%
+maximum Netdata gap = 2 s
+maximum DCGM gap = 2 s
+~~~
+
+The aligned artifact should retain:
+
+~~~
+timestamp_ns
+netdata_timestamp_ns
+dcgm_timestamp_ns
+alignment_delta_ms
+~~~
+
+and quality metadata:
+
+~~~
+netdata_samples
+dcgm_samples
+aligned_samples
+alignment_coverage
+median_alignment_delta_ms
+max_alignment_delta_ms
+max_netdata_gap_s
+max_dcgm_gap_s
+~~~
+
+The 2026-09-27 RTX5090 validation produced 100% coverage, median absolute delta 284.8 ms, and maximum delta 490.5 ms.
+
+## Netdata readiness audit
+
+Use scripts/audit_netdata.py only for the Netdata-owned system/CPU portion of the contract.
+
+Example:
+
+~~~bash
+python scripts/audit_netdata.py   --node worker-4090=http://<parent-access-path>/host/<4090-hostname>   --node worker-5090=http://<parent-access-path>/host/<5090-hostname>   --output netdata-audit.json
+~~~
+
+The exact Parent access URL depends on where the script runs. Do not expose child port 19999 solely for this audit.
+
+GPU readiness is audited separately through DCGM.
+
+## DCGM collection
+
+Example:
+
+~~~bash
+python scripts/collect_dcgm.py   --url http://<dcgm-pod-ip>:9400/metrics   --node <node-name>   --gpu-uuid GPU-...   --duration-s 120   --interval-ms 1000   --output dcgm.csv
+~~~
+
+The exporter-side collection interval and client-side polling interval are separate. Formal experiments should keep both near 1 s.
 
 ## Aggregation
 
-能耗模型推論必須使用和訓練完全相同的 aggregation。每個 feature 都要在 model manifest 指定，例如：
+Power-model inference must use exactly the aggregation and preprocessing defined by that node model's manifest.
 
-```json
+Examples:
+
+~~~json
 {
   "GPU Power(W)": "mean",
   "GPU Util%": "mean",
   "CPU Temp(°C)": "last",
   "Top1 CPU%": "p95"
 }
-```
+~~~
 
-不要由部署程式自行選 mean 或 latest。
+The deployment code must not independently choose mean/latest/p95.
 
-## 瞬時功率與能量
+If the model consumes per-timestamp feature vectors, keep the aligned time series and run the model at each aligned sample. If the model was trained on window aggregates, aggregate only according to its frozen training manifest.
 
-Energy adapter 對每一筆對齊後資料執行：
+## Power and energy semantics
 
-```text
-[18 features, corresponding time] → predicted_power_w(t)
-```
+The first production ranking contract accepts node-bound models whose output is:
 
-`corresponding time` 的 encoding 必須和訓練一致；若 timestamp 只用來對齊，就不能直接當模型特徵。Collector 保存完整的 `timestamp_unix_ns, predicted_power_w` 序列，以梯形積分得到 observed-window Joules，再以 steady-window power 與 runtime prediction 外推 production energy。
+~~~
+target_semantics = node-total-power
+target_unit = W
+~~~
 
-如果 target 是整台 node 的外部量測功率，`GPU Power(W)` 可作為輸入；如果 target 本身就是 NVIDIA GPU Power，則此欄會造成 target leakage，必須從模型輸入移除。
+For a node-specific idle baseline:
 
-## Readiness audit
+~~~
+P_incremental(t) = max(0, P_predicted_node(t) - P_idle_node)
+~~~
 
-使用：
+and energy is integrated over time.
 
-```bash
-python scripts/audit_netdata.py \
-  --node worker-5090=http://10.0.0.12:19999 \
-  --node worker-4090=http://10.0.0.13:19999
-```
+If GPU Power(W) is an input while the model target is NVIDIA GPU power itself, this can create target leakage. The model manifest must describe target semantics and required features explicitly; deployment must not infer them.
 
-工具會檢查 system charts、GPU contexts、temperature、Top CPU 與 Top GPU，並以非零 exit code 表示有必要 feature 缺失。
+## Required-feature gate
+
+Platform telemetry readiness and model readiness are separate.
+
+A model may require only the validated 16-field core, or it may require additional features such as Top1 GPU% / Top2 GPU%.
+
+Before inference:
+
+1. Resolve the node-bound model.
+2. Read required_features from its manifest.
+3. Verify every required canonical feature is available and finite.
+4. Reject missing features; never silently zero-fill them.
+5. Verify node and physical GPU UUID binding.
+
+See power-model-registry.md for the model binding contract.
