@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pre6g.example/schemas/workload-spec.schema.json",
+  "title": "Pre6G canonical workload semantic specification v1",
+  "type": "object",
+  "required": [
+    "workload_family",
+    "adapter",
+    "profileable",
+    "parameters",
+    "work"
+  ],
+  "properties": {
+    "workload_family": {
+      "type": "string",
+      "minLength": 1
+    },
+    "adapter": {
+      "type": "string",
+      "minLength": 1
+    },
+    "profileable": {
+      "type": "boolean"
+    },
+    "parameters": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "work": {
+      "type": "object",
+      "required": [
+        "status",
+        "unit",
+        "total_units",
+        "source",
+        "assumptions",
+        "missing",
+        "runtime_discovery_required"
+      ],
+      "properties": {
+        "status": {
+          "enum": ["declared", "estimated", "unknown"]
+        },
+        "unit": {
+          "type": ["string", "null"]
+        },
+        "total_units": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "source": {
+          "type": "string"
+        },
+        "assumptions": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "missing": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "runtime_discovery_required": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}
