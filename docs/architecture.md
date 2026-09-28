@@ -2,42 +2,60 @@
 
 ## 核心原則
 
-Pre6G_experiment 對使用者 Job 採兩層處理：
+Pre6G_experiment 對使用者 Job 採三層處理：
 
 ~~~text
 Execution Contract
   image / command / args / env / resources / volumes
 
-Workload Semantic Contract
+Static Semantic Contract
   workload family
   canonical parameters
-  work unit
+  candidate work unit
   total work units
-  discovery source
+
+Marker-Free Runtime Discovery
+  target-process CUDA trace
+  recurring execution cycle
+  period / confidence / stability
 ~~~
 
-Execution Contract 決定「如何執行」，Semantic Contract 決定「平台理解多少，以及能否外推 total runtime / total energy」。
+Execution Contract 決定「如何執行」；Static Semantic Contract 決定「平台對 workload 的語意理解」；Marker-Free Runtime Discovery 決定「實際執行呈現什麼週期行為」。
 
-Unknown semantics 不阻止 profiling。
+正式 production path 不要求修改使用者程式碼。
+
+## Production 禁止依賴
+
+下列資料可用於研究 fixture validation，但不能成為 production detector input：
+
+~~~text
+iterations.csv
+NVTX iteration markers
+training callbacks
+source-code instrumentation
+user-added timing markers
+framework-specific marker injection
+~~~
 
 ## 元件
 
 | 元件 | 執行位置 | 責任 |
 |---|---|---|
 | Experiment API / Controller | k3s server | 接收 Job、驗證 execution contract、找候選節點、建立 Profile Job、等待結果、選點、建立 production Job |
-| Workload Semantic Layer | controller | explicit metadata → adapter → runtime discovery → unknown，輸出 canonical workload spec |
-| Workload Adapter Registry | controller | 針對已知 framework 將 argv/config 轉成 canonical workload semantics；目前先有 YOLO adapter |
+| Static Semantic Layer | controller | explicit metadata / known argv / config / dataset metadata → canonical workload spec |
+| Workload Adapter Registry | controller | 針對已知 framework 將既有 Job/config 轉成 canonical semantics；不修改 application code |
 | Profile Job Builder | controller | deep-copy source Job，保留 application contract，只加入 Nsight wrapper、node pin、artifact 與 dry-run policy |
-| Application container | candidate worker | 在實際 shared-GPU 資源上執行使用者 workload |
-| Profile collector | 同一 Pod 或 controller-side collector | 驗證 report、export、feature extraction、artifact upload |
+| Marker-Free Trace Extractor | collector / central service | Nsight SQLite → target-process CUDA event sequence |
+| Period Detector | collector / central service | recurring CUDA pattern → execution_cycle period / confidence / stability |
+| Semantic Binding Layer | controller / runtime adapter | execution_cycle ↔ declared/adapter work_unit；無法驗證時保持 unbound |
 | Netdata child | 每個 node | system/CPU/memory/temp/process CPU time series |
 | Netdata Parent | central monitoring | per-host historical system telemetry |
 | DCGM Exporter | 每個 NVIDIA node | GPU utilization、framebuffer、temperature、power |
-| Runtime adapter | central service 或 collector | target-process CUDA trace → runtime per work unit / confidence / OOD |
+| Runtime adapter | central service | marker-free trace features + semantic binding → runtime per work unit / confidence / OOD |
 | Power model registry/router | central service | node + physical GPU UUID → node-bound power model |
 | Power adapter | central service | canonical telemetry → node-total power |
-| Decision layer | controller | 驗證 work-unit/model/telemetry gates，計算 energy 並排序 |
-| Artifact store | MinIO/S3/NFS | source/profile Job、trace、telemetry、semantic spec、predictions、ground truth |
+| Decision layer | controller | 驗證 semantic/model/telemetry gates，計算 energy 並排序 |
+| Artifact store | MinIO/S3/NFS | source/profile Job、trace、marker-free features、telemetry、semantic spec、predictions、ground truth |
 
 ## 正式資料流
 
@@ -47,124 +65,250 @@ Unknown semantics 不阻止 profiling。
               +------------+------------+
               |                         |
               v                         v
-      Execution Contract        Semantic Discovery
-                                   |
-                      +------------+------------+
-                      |            |            |
-                   explicit      adapter      runtime
-                   metadata                   discovery
-                      |            |            |
-                      +------------+------------+
-                                   |
-                                   v
-                         Canonical Workload Spec
-                                   |
-                                   v
+      Execution Contract       Static Semantic Layer
+                                     |
+                           argv/config/metadata
+                                     |
+                                     v
+                           Canonical Workload Spec
+                                     |
+                                     v
                          candidate discovery
-                                   |
-                 +-----------------+-----------------+
-                 |                                   |
-                 v                                   v
-          RTX4090 dry-run                      RTX5090 dry-run
-                 |                                   |
-          Nsight target trace                  Nsight target trace
-          Netdata historical                   Netdata historical
-          DCGM collection                      DCGM collection
-                 |                                   |
-                 v                                   v
-          aligned telemetry                    aligned telemetry
-                 |                                   |
-                 +------------ runtime ------------+
-                 |                                   |
-                 v                                   v
-        runtime per work unit               runtime per work unit
-
-                 +------------- power -------------+
-                 |                                   |
-                 v                                   v
-          4090 node model                      5090 node model
-                 |                                   |
-                 v                                   v
-          node-total power                     node-total power
-                 |                                   |
-                 +---------- normalization ----------+
-                                   |
-                                   v
-                         total-job comparison
-                     only if total work is known
-                                   |
-                                   v
-                         production placement
+                                     |
+                 +-------------------+-------------------+
+                 |                                       |
+                 v                                       v
+          RTX4090 dry-run                          RTX5090 dry-run
+                 |                                       |
+                 v                                       v
+      target-process Nsight trace              target-process Nsight trace
+                 |                                       |
+                 v                                       v
+        marker-free extraction                  marker-free extraction
+                 |                                       |
+                 v                                       v
+         execution_cycle period                  execution_cycle period
+                 |                                       |
+                 +-------------------+-------------------+
+                                     |
+                                     v
+                             Semantic Binding
+                                     |
+                         +-----------+-----------+
+                         |                       |
+                         v                       v
+                      bound                  unbound
+                         |                       |
+                         v                       v
+               runtime per work unit      cycle latency /
+               + total-work path          slowdown only
+                         |
+                         v
+                 aligned Netdata/DCGM
+                         |
+                         v
+               node-bound power model
+                         |
+                         v
+                    energy ranking
+                         |
+                         v
+                  production placement
 ~~~
 
-## Workload semantic contract
+## execution_cycle 與 work_unit
 
-Canonical schema：
+Marker-free detector 的第一層輸出必須是：
 
 ~~~text
-schemas/workload-spec.schema.json
+detected_unit = execution_cycle
+period_ms
+confidence
+complete_cycles
 ~~~
 
-核心欄位：
+不能因為測試 workload 是 training job，就直接把 execution_cycle 稱為 training_iteration。
+
+Static Semantic Layer 可能知道：
 
 ~~~text
-workload_family
-adapter
-profileable
-parameters
-work.status
-work.unit
-work.total_units
-work.source
-work.missing
-runtime_discovery_required
+work_unit = training_iteration
+total_work_units = 640
 ~~~
 
-Discovery priority：
+但兩者之間還要通過 Semantic Binding gate：
 
 ~~~text
-1. explicit canonical metadata
-2. registered adapter
-3. runtime discovery
-4. unknown
+execution_cycle
+     ↕ validated binding
+training_iteration
 ~~~
 
-平台核心不解析任意 CLI 的語意；只由 adapter 處理它宣告支援的 framework。
-
-目前 first adapter = YOLO。未來加入 LLM / FFmpeg / FAISS adapter 不需要改 execution path。
-
-## Generic runtime semantics
-
-不要把所有 workload 都強制視為 iteration。
-
-Examples：
+可能的 binding 狀態：
 
 ~~~text
-YOLO training      -> training_iteration
-LLM fine-tuning    -> optimizer_step
-LLM inference      -> generated_token
-FFmpeg             -> frame
-FAISS build        -> vector_insert
+bound
+unbound
+conflict
+insufficient_evidence
 ~~~
 
-Runtime adapter 建議輸出：
+只有 bound 才能把 marker-free cycle runtime 外推到 semantic work unit。
 
-~~~json
-{
-  "work_unit": "training_iteration",
-  "predicted_runtime_ms_per_work_unit": 42.1
-}
-~~~
+## Semantic-aware mode
 
-若 workload spec work unit 與 runtime prediction work unit 不一致，decision layer 拒絕外推。
-
-只有 total_work_units 已知，才允許：
+條件：
 
 ~~~text
-T_total = T_per_work_unit * total_work_units
+work_unit known
+total_work_units known
+execution_cycle -> work_unit binding validated
+runtime model ready
 ~~~
 
-Unknown total work 仍可保留 per-cycle/per-unit evidence，但不應宣稱 total-job runtime/energy。
+此時：
+
+~~~text
+T_total = runtime_per_work_unit × total_work_units
+~~~
+
+再結合 power prediction 估計 total energy。
+
+## Opaque mode
+
+若使用者 Job 完全沒有可可靠解析的 workload semantics：
+
+~~~text
+detected_unit = execution_cycle
+total_work_units = unknown
+semantic binding = unbound
+~~~
+
+平台仍可輸出：
+
+- execution-cycle latency；
+- slowdown under current load；
+- relative local performance；
+- trace stability / OOD evidence。
+
+但不可宣稱精確 total job runtime / total energy。
+
+## Marker-Free trace contract
+
+正式 shared-GPU runtime path 使用 target-process CUDA trace。
+
+Nsight：
+
+~~~text
+/opt/pre6g/nsight/bin/nsys profile
+  --trace=cuda,nvtx,osrt
+  --sample=none
+  --cpuctxsw=none
+  -- <original command> <original args>
+~~~
+
+NVTX 可存在於 report，但 detector 不讀 NVTX。
+
+Marker-free extractor最低需要：
+
+~~~text
+CUPTI_ACTIVITY_KIND_KERNEL
+StringIds
+
+kernel fields:
+  start
+  end
+  shortName
+  globalPid
+  contextId
+  streamId
+~~~
+
+首版 event representation：
+
+~~~text
+start_ns
+end_ns
+duration_ns
+short_name_id
+global_pid
+context_id
+stream_id
+relative_start_ns
+inter_arrival_ns
+~~~
+
+禁止加入：
+
+~~~text
+iteration_id
+epoch
+batch_in_epoch
+NVTX-derived labels
+callback-derived labels
+~~~
+
+## Period target
+
+Period target 是 recurring pattern 的 start-to-start cadence，而不是單純將 kernel duration 相加。
+
+~~~text
+cycle_start[n]
+      |
+      +---- elapsed wall cadence ----+
+                                     |
+                              cycle_start[n+1]
+~~~
+
+這樣才能保留 kernel gap、CPU launch delay、sync/data-movement 與 contention 對 work-unit latency 的影響。
+
+## YOLO C03 marker-free preflight
+
+RTX5090 C03 已以 Nsight Systems 2026.4.1.191 驗證：
+
+~~~text
+CUPTI_ACTIVITY_KIND_KERNEL present
+StringIds present
+kernel_count = 653976
+kernel-start span = 17.980515013 s
+
+usable fields:
+  start
+  end
+  shortName
+  globalPid
+  deviceId
+  contextId
+  streamId
+~~~
+
+kernel table 中目前是一個 dominant CUDA process/context group：
+
+~~~text
+globalPid = 327417436569600
+contextId = 1
+kernel_count = 653976
+~~~
+
+這表示 marker-free extractor 可進入下一步，但尚未證明 stable execution-cycle period 已成功 recover。
+
+## Research ground truth policy
+
+Instrumented benchmark 可保留作 offline validation。
+
+正確順序：
+
+~~~text
+marker-free detector input only
+        ↓
+freeze detector output
+        ↓
+reveal hidden instrumentation ground truth
+        ↓
+compute error
+~~~
+
+不得在 detector tuning/current-run inference 中讀取 iterations.csv 或 NVTX iteration labels。
 
 ## Telemetry responsibility
 
@@ -185,7 +329,7 @@ DCGM Exporter
   GPU power
 
 Nsight Systems
-  target-process CUDA trace
+  target-process CUDA behavior
 ~~~
 
 Top1/Top2 per-process GPU utilization remain optional extension。
@@ -220,31 +364,7 @@ P_incremental = max(0, P_node_predicted - P_idle_node)
 
 若 power prediction 是 time series，積分 P_incremental(t)。
 
-RTX4090 / RTX5090 真實 power model formats尚未取得，因此 real workflow目前保持 profile-only。
-
-## Profile Job wrapping
-
-Controller 不重新理解或重寫 application parameters。
-
-原始：
-
-~~~text
-<original-command> <original-args>
-~~~
-
-Profile：
-
-~~~text
-/opt/pre6g/nsight/bin/nsys profile
-  --trace=cuda,nvtx,osrt
-  --sample=none
-  --cpuctxsw=none
-  --output=<artifact-path>/profile
-  --
-  <original-command> <original-args>
-~~~
-
-Adapter 只做 semantic discovery，不參與 argv reconstruction。
+RTX4090 / RTX5090 真實 power model formats 尚未取得，因此 real workflow 目前保持 profile-only。
 
 ## Kubernetes placement
 
@@ -262,19 +382,9 @@ resources:
 
 Profile 與 production 必須使用相同 sharing contract。
 
-## Shared-GPU runtime backend
+## Formal 120-second capture
 
-正式 shared-mode extractor只讀 target-process CUDA trace：
-
-~~~text
-CUPTI kernel start timestamp
-CUDA kernel short-name ID
-target process/context identity
-~~~
-
-Device-wide GPU metrics不作 period detector fallback。
-
-正式 capture：
+Phase 07：
 
 ~~~text
 configured capture = 120 s
@@ -283,7 +393,7 @@ detector prefixes = 7/9/12/15/20/30 s
 minimum complete cycles = 3
 ~~~
 
-在此之前，Phase 05/06先做短 execution/profile compatibility。
+固定 capture length 與 detector window 是不同參數。Detector 第一版離線分析，不根據 period result 在線提前停止 Nsight。
 
 ## Telemetry time alignment
 
@@ -310,12 +420,14 @@ max DCGM gap <= 2 s
 ~~~text
 RECEIVED
 → EXECUTION_VALIDATED
-→ SEMANTICS_DISCOVERED
+→ STATIC_SEMANTICS_DISCOVERED
 → CANDIDATES_DISCOVERED
 → TELEMETRY_READY
-→ SHORT_COMPATIBILITY_PASSED
 → PROFILE_JOBS_CREATED
 → PROFILING
+→ MARKER_FREE_EVENTS_EXTRACTED
+→ EXECUTION_CYCLE_DETECTED
+→ SEMANTIC_BINDING_EVALUATED
 → FEATURES_EXTRACTED
 → MODELS_RESOLVED
 → PREDICTED
@@ -326,7 +438,7 @@ RECEIVED
 → COMPLETED
 ~~~
 
-Semantic status unknown 可以繼續到 profiling；只有需要 total-job prediction/ranking 時才形成 gate。
+Semantic status unknown / binding unbound 可以繼續 profiling；只有 total-job prediction/ranking 才形成 gate。
 
 ## Artifact layout
 
@@ -335,12 +447,12 @@ artifacts/<task-id>/<node>/<attempt>/
 ├── source-job.yaml
 ├── execution-contract.json
 ├── workload-spec.json
-├── runtime-discovery.json
 ├── profile-job.yaml
 ├── profile.nsys-rep
 ├── profile.sqlite
-├── nsys-stats.csv
-├── marker-free-features.json
+├── marker-free-events.csv
+├── marker-free-discovery.json
+├── semantic-binding.json
 ├── timestamps.json
 ├── raw/
 │   ├── netdata.json
@@ -356,5 +468,7 @@ artifacts/<task-id>/<node>/<attempt>/
 ├── node-result.json
 └── checksums.json
 ~~~
+
+研究 fixture 的 iterations.csv / summary.json 等 instrumentation artifacts 不屬於 production-required artifact contract。
 
 不要使用 k3s local-path RWO PVC 當跨節點共享 artifact store。
