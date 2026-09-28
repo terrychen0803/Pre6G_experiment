@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pre6g.example/schemas/semantic-runtime.schema.json",
+  "title": "Pre6G Semantic Runtime v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "device_id",
+    "model_id",
+    "detected_unit",
+    "predicted_runtime_ms_per_execution_cycle",
+    "semantic_binding",
+    "work_unit",
+    "predicted_runtime_ms_per_work_unit",
+    "total_work_units",
+    "predicted_steady_runtime_s",
+    "predicted_total_job_runtime_s",
+    "total_job_runtime_status",
+    "aggregation_scope"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "pre6g.semantic-runtime/v1"
+    },
+    "predicted_runtime_ms_per_execution_cycle": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "semantic_binding": {
+      "type": "object"
+    },
+    "work_unit": {
+      "type": "string",
+      "minLength": 1
+    },
+    "predicted_runtime_ms_per_work_unit": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "total_work_units": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "predicted_steady_runtime_s": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "predicted_total_job_runtime_s": {
+      "type": ["number", "null"],
+      "exclusiveMinimum": 0
+    },
+    "total_job_runtime_status": {
+      "type": "string"
+    },
+    "aggregation_scope": {
+      "const": "steady-work-only"
+    }
+  },
+  "additionalProperties": true
+}
