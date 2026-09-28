@@ -65,8 +65,22 @@ def main() -> None:
         include_nvtx_audit=args.audit_nvtx,
     )
 
+    available_span_seconds = (
+        trace["events"][-1][0] - trace["events"][0][0]
+    ) / 1e9
+    usable_horizons = [
+        horizon
+        for horizon in profile.horizons_seconds
+        if horizon <= available_span_seconds
+    ]
+    if not usable_horizons:
+        raise SystemExit(
+            "trace is shorter than the minimum detector horizon: "
+            f"{available_span_seconds:.3f}s"
+        )
+
     rows: list[dict] = []
-    for horizon in profile.horizons_seconds:
+    for horizon in usable_horizons:
         row = detect(
             trace["events"],
             trace["names"],
@@ -151,6 +165,8 @@ def main() -> None:
         "evaluation_horizons_seconds": list(
             profile.horizons_seconds
         ),
+        "available_trace_span_seconds": available_span_seconds,
+        "executed_horizons_seconds": usable_horizons,
         "deployment_horizons_seconds": list(
             profile.deployment_horizons
         ),
