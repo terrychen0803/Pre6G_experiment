@@ -7,9 +7,11 @@
 ~~~text
 Opaque User Job
   → Execution Contract
-  → Workload Semantic Discovery
-  → per-node dry-run
-  → target-process Nsight trace
+  → Static Semantic Discovery
+  → Marker-Free Dry-run
+  → target-process CUDA trace
+  → execution-cycle discovery
+  → semantic binding
   → Netdata + DCGM aligned telemetry
   → runtime / node-bound power prediction
   → quality/model gate
@@ -20,6 +22,18 @@ Opaque User Job
 
 YOLO 是目前用來跑通平台流程的第一個 integration fixture，不是平台支援邊界。
 
+正式 production path 不依賴：
+
+~~~text
+iterations.csv
+NVTX iteration markers
+training callbacks
+source-code instrumentation
+user-added timing markers
+~~~
+
+這些資料只能作為研究驗證的 hidden ground truth。
+
 ## Phase 00：Contract freeze
 
 保存：
@@ -29,11 +43,11 @@ YOLO 是目前用來跑通平台流程的第一個 integration fixture，不是�
 3. container image digest。
 4. dataset/version/hash；若 workload 不使用 dataset 則記錄 not-applicable。
 5. candidate GPU sharing strategy、resource name、replicas、physical GPU UUID。
-6. Nsight version與 trace contract。
+6. Nsight version 與 trace contract。
 7. Netdata/DCGM feature schema、cadence、alignment policy。
 8. runtime model manifest；尚未定版則 profile-only。
 9. node-bound power model manifest；尚未取得則 status=unavailable。
-10. workload semantic metadata 與其來源：declared / adapter / runtime discovery / unknown。
+10. workload semantic metadata 與其來源：declared / adapter / config / unknown。
 
 目前 RTX4090/RTX5090 integration baseline：
 
@@ -180,7 +194,7 @@ NTP service: active
 
 ### 04E Timestamp alignment
 
-Netdata historical samples與 DCGM active collection以 absolute UTC timestamp 對齊。
+Netdata historical samples 與 DCGM active collection 以 absolute UTC timestamp 對齊。
 
 Current gate：
 
@@ -212,11 +226,17 @@ Max |delta| = 490.5 ms
 
 Top1/Top2 GPU 目前不是 validated core telemetry；若 power model 需要，該 model 維持 unavailable/schema_mismatch。
 
-## Phase 05：Workload Intake & Semantic Discovery
+## Phase 05：Workload Intake & Marker-Free Discovery
 
-這一階段不要求 runtime/power model ready，也不做 120 秒正式 profiling。
+Phase 05 不要求 runtime/power model ready，也不做正式 120 秒 prediction。
 
-目標是證明平台可以接受 arbitrary batch/v1 Job，並把 execution 與 semantics 分離。
+目標是證明：
+
+1. arbitrary batch/v1 Job 可被平台接收；
+2. execution contract 與 workload semantics 分離；
+3. marker-free CUDA trace 可找出 recurring execution behavior；
+4. 不修改 user code；
+5. 不依賴 instrumentation 才能做 production profiling。
 
 ### 05A Generic Job inspection
 
@@ -244,82 +264,162 @@ workload_spec
   work.total_units
   source
   missing
-  runtime_discovery_required
 ~~~
 
 原始 command/args 不因 adapter 被改寫。
 
-### 05B Semantic discovery priority
+目前已驗證：
+
+- YOLO fixture 可由 adapter 推估 training_iteration work amount。
+- unknown Job 仍 profileable=true。
+- generic explicit metadata 可描述 frame 等非 training work unit。
+
+### 05B Static semantic extraction
+
+Production semantics 的允許來源：
 
 ~~~text
 1. explicit canonical metadata
 2. registered workload adapter
-3. runtime discovery
+3. standard argv / mounted config / dataset metadata
 4. unknown
 ~~~
 
-Explicit metadata：
+不要求在 user process 內埋 callback。
 
-~~~yaml
-pre6g.io/workload-family: vision-training
-pre6g.io/work-unit: training_iteration
-pre6g.io/total-work-units: "640"
-pre6g.io/workload-parameters-json: >-
-  {"model":"...","batch_size":16}
-~~~
-
-未知 total work 仍 profileable。
-
-### 05C YOLO integration fixture
-
-目前第一個 adapter 是 YOLO，只用來驗證 semantic layer：
-
-- --model
-- --epochs
-- --batch / --batch-size
-- --imgsz / --img-size
-- --amp
-- dataset sample count annotation
-
-若 metadata 完整：
+Static semantics 可描述：
 
 ~~~text
-steps_per_epoch = ceil(training_samples / batch)
-total_work_units = epochs × steps_per_epoch
-work_unit = training_iteration
+workload family
+model/config parameters
+candidate work_unit
+total_work_units
 ~~~
 
-### 05D Runtime discovery
+但 static semantics 與實際 CUDA recurring cycle 是不同資訊。
 
-實際執行後比對 requested / discovered：
+### 05C Marker-Free workload discovery
 
-- actual batch
-- dataloader length
-- steps per epoch
-- world size
-- gradient accumulation
-- observed work-unit boundary
+正式輸入：
 
-Static estimate 若與 runtime discovery 不一致，後續 total-runtime 外推不得直接使用未驗證 static 值。
+~~~text
+original User Job
++
+target-process Nsight CUDA trace
+~~~
 
-### 05E Short real execution
+Production detector 禁止依賴：
 
-同一 immutable workload image/config 在 RTX4090 / RTX5090 各做短時間 execution compatibility test。
+~~~text
+iterations.csv
+NVTX TRAIN_ITER markers
+epoch/batch callbacks
+summary.json iteration timing
+source-code instrumentation
+~~~
 
-本階段先不要求 Nsight 120 秒，只確認：
+Nsight SQLite 最低事件欄位：
 
-- image 可啟動
-- dataset/input 可存取
-- CUDA 可用
-- GPU shared resource 正常
-- application 真正進入 steady work
-- requested/discovered semantics 可保存
+~~~text
+start
+end
+shortName
+globalPid
+contextId
+streamId
+~~~
 
-詳細 contract 見 docs/workload-intake.md。
+流程：
+
+~~~text
+CUPTI kernel events
+  → isolate target process/context
+  → build marker-free event sequence
+  → detect recurring pattern
+  → estimate start-to-start period
+  → stability/confidence gate
+  → emit detected_unit=execution_cycle
+~~~
+
+第一個 detector output 必須稱為 execution_cycle，不直接稱為 training_iteration。
+
+詳見 docs/marker-free-workload-discovery.md。
+
+### 05D Semantic binding gate
+
+Marker-free detector：
+
+~~~text
+execution_cycle
+period_ms
+confidence
+complete_cycles
+~~~
+
+Semantic layer：
+
+~~~text
+candidate work_unit
+total_work_units
+~~~
+
+只有 binding 被驗證後才能：
+
+~~~text
+execution_cycle
+  ↔
+training_iteration / optimizer_step / frame / ...
+~~~
+
+如果 binding unknown：
+
+~~~text
+work unit remains execution_cycle
+total-job extrapolation disabled
+~~~
+
+Opaque workload 仍可輸出 cycle latency、slowdown、relative local performance。
+
+### 05E YOLO validation fixture
+
+YOLO C03 既有 instrumented baseline 只作 hidden ground truth。
+
+目前 validation-only evidence：
+
+~~~text
+batch = 16
+imgsz = 320
+32 batches / epoch
+steady-window mean iteration = 31.141946287 ms
+GPU-event mean = 27.943115252 ms
+~~~
+
+這些數字不得餵入 marker-free detector。
+
+RTX5090 C03 trace preflight 已驗證：
+
+~~~text
+Nsight = 2026.4.1.191
+CUPTI_ACTIVITY_KIND_KERNEL present
+StringIds present
+kernel_count = 653976
+kernel start span = 17.980515013 s
+single dominant globalPid/contextId group
+usable columns:
+  start
+  end
+  shortName
+  globalPid
+  deviceId
+  contextId
+  streamId
+~~~
+
+因此目前 Phase 05 下一步是 marker-free event extraction，而不是再次分析 iterations.csv。
 
 ## Phase 06：Short Profile Compatibility
 
-把 Phase 05 已通過的同一 application contract包進固定 Nsight 2026。
+把 Phase 05 已通過的同一 application contract 包進固定 Nsight 2026。
 
 Profile Job 必須：
 
@@ -335,7 +435,8 @@ PASS：
 
 - application仍能正常進入 workload
 - .nsys-rep 完整
-- target CUDA kernels 可識別
+- target CUDA process/context 可識別
+- marker-free execution cycle 可偵測
 - Netdata/DCGM 同窗口可收集
 - timestamp quality pass
 - graceful/finalization行為可接受
@@ -359,31 +460,29 @@ PASS：
 - sample=none
 - cpuctxsw=none
 - configured capture = 120 s
-- workload若提早自然完成則保存實際長度
-- report finalization後才做 offline detection
+- workload 若提早自然完成則保存實際長度
+- report finalization 後才做 offline marker-free detection
 - target cycles >= 3
 - 保存 timestamps.json
 
-建議 timestamps：
-
-~~~text
-pre_window_start_ns
-application_start_ns
-profile_start_ns
-steady_window_start_ns
-steady_window_end_ns
-profile_end_ns
-application_end_ns
-post_window_end_ns
-~~~
+NVTX 可以存在於 report 作 audit，但 detector 不讀 NVTX。
 
 ## Phase 08：Feature extraction, prediction and ranking
 
 ### Runtime
 
-Shared GPU只使用 target-process CUDA trace。
+Shared GPU 只使用 target-process CUDA trace。
 
-Generic runtime contract：
+Marker-free detector 先輸出：
+
+~~~text
+detected_unit = execution_cycle
+period_ms
+confidence
+complete_cycles
+~~~
+
+只有 semantic binding validated 後，runtime adapter 才可輸出：
 
 ~~~text
 work_unit
@@ -397,7 +496,7 @@ runtime work_unit 必須與 workload spec 一致。
 ### Telemetry
 
 1. Netdata Parent 查相同 absolute window。
-2. DCGM保存 raw CSV。
+2. DCGM 保存 raw CSV。
 3. canonical units。
 4. timestamp alignment。
 5. 保存 quality metadata。
@@ -406,7 +505,7 @@ runtime work_unit 必須與 workload spec 一致。
 
 依 candidate node + physical GPU UUID resolve node-bound model。
 
-目前 4090 / 5090 真實 power model formats尚未取得，因此保持 profile-only。
+目前 4090 / 5090 真實 power model formats 尚未取得，因此保持 profile-only。
 
 第一版 ranking contract：
 
@@ -417,15 +516,22 @@ target_unit = W
 
 ### Total runtime / energy
 
-只有 total_work_units 已知才能：
+只有下列條件都成立才允許 total-job extrapolation：
+
+~~~text
+semantic binding validated
+work_unit known
+total_work_units known
+runtime model ready
+~~~
+
+此時：
 
 ~~~text
 T_total ≈ runtime_per_work_unit × total_work_units
 ~~~
 
-並進一步外推 total energy。
-
-未知 total work時只保存 per-work-unit evidence，預設不自動部署。
+若 total work 或 semantic binding unknown，只保存 per-cycle/per-work-unit evidence，預設不自動部署。
 
 ## Phase 09：Production Job and ground-truth evaluation
 
@@ -452,6 +558,9 @@ kubectl apply --dry-run=server -f production-job.yaml
 
 評估至少包含：
 
+- marker-free period error
+- cycle stability / confidence
+- semantic-binding success/failure rate
 - runtime MAPE
 - power MAE/MAPE
 - energy MAPE
@@ -464,14 +573,19 @@ kubectl apply --dry-run=server -f production-job.yaml
 - model-binding rejection rate
 - alignment quality distribution
 
+研究 validation 可使用 instrumentation 作 hidden ground truth，但 production inference path 不可使用。
+
 ## Failure policy
 
 | 狀況 | 行為 |
 |---|---|
-| Unknown workload semantics | 允許 profiling；不做 total-job extrapolation |
-| total work未知 | per-work-unit result；預設不自動部署 |
-| semantic adapter不存在 | generic/profile-only；可做 runtime discovery |
+| Unknown workload semantics | 允許 marker-free profiling；不做 total-job extrapolation |
+| execution cycle 可偵測但 semantic binding unknown | 報 cycle latency / slowdown；保持 profile-only |
+| total work未知 | per-cycle/per-work-unit result；預設不自動部署 |
+| semantic adapter不存在 | generic/profile-only |
 | runtime work_unit mismatch | reject prediction |
+| marker-free period不穩定 | reject該次 runtime evidence |
+| target process/context無法辨識 | reject該次 profile |
 | 某 node Profile Job失敗 | 排除 node並保存原因 |
 | 所有 node失敗 | 不建立 production Job |
 | runtime model unavailable | profile-only |
@@ -479,7 +593,6 @@ kubectl apply --dry-run=server -f production-job.yaml
 | power model binding mismatch | reject，不 fallback |
 | required telemetry missing | model not ready |
 | alignment gate失敗 | telemetry invalid |
-| shared GPU target process無法辨識 | 不得用 device-wide fallback |
 | sharing state明顯漂移 | 重新 profile |
 | prediction tie | tie/insufficient evidence |
 
@@ -492,12 +605,14 @@ Phase 01 GPU scheduling baseline
 Phase 02 Nsight 2026 preflight
 Phase 03 Nsight Kubernetes smoke
 Phase 04 Monitoring + timestamp alignment
+Phase 05A Generic workload intake
+Phase 05C marker-free trace preflight on RTX5090 C03
 ~~~
 
 目前進行：
 
 ~~~text
-Phase 05 Workload Intake & Semantic Discovery
+Phase 05C marker-free CUDA event extraction
 ~~~
 
-第一個 integration fixture 使用 YOLO26；後續會以 adapter方式擴充，而不修改 generic controller core。
+下一步先從 Nsight SQLite 建立不含任何 iteration/NVTX label 的 target-process event sequence。
