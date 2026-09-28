@@ -111,3 +111,43 @@ They do not establish:
 - production end-to-end scheduling accuracy.
 
 The immediate project goal is to reproduce the validated algorithmic path inside the deployment architecture, then validate the complete RTX4090/RTX5090 workflow under the same marker-free contracts.
+
+
+## Deployment smoke completed in Pre6G_experiment
+
+The validated reference logic has now been exercised through the deployment-oriented path.
+
+RTX5090 C03 marker-free detector:
+
+~~~text
+detected execution_cycle          129.988614 ms
+detector confidence               0.8399946
+same-window NVTX audit oracle     132.1907935 ms
+same-window detector APE          1.6659%
+full-steady audit oracle          126.65958 ms
+~~~
+
+The production run did not use NVTX or iterations.csv. NVTX was revealed only after the marker-free output was frozen.
+
+Control-side frozen runtime inference:
+
+~~~text
+frozen model                      RTX5090_yolo_trace_only_v1
+predicted runtime                 109.251714 ms
+C03 unprofiled smoke reference    118.080153 ms
+smoke comparison APE              7.4766%
+~~~
+
+This 7.48% is a component/deployment smoke comparison, not a held-out generalization result, because C03 is represented in the 48-sample final-fit dataset used to freeze the deployment-smoke model.
+
+The production-oriented control flow is therefore:
+
+~~~text
+worker marker-free trace
+  -> runtime-features.json
+  -> shared artifact handoff
+  -> control-side frozen model
+  -> runtime-prediction.json
+~~~
+
+Manual SCP was used only to validate the interface before the Kubernetes artifact handoff is automated.
