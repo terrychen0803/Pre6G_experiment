@@ -2,7 +2,7 @@
 
 本文件保存 Pre6G Experiment 實際 k3s 多 GPU 整合測試的叢集基線，目的在於讓後續 profiling、Netdata、runtime/power prediction 與 production placement 都有可追溯的環境依據。
 
-> Snapshot date: 2026-09-27
+> Snapshot date: 2026-09-28
 >
 > 本 repository 為 public repository，因此不保存 master/worker 的實際網路位址。需要重新確認時，請在 control-plane 執行 `kubectl get nodes -o wide`。
 
@@ -148,29 +148,36 @@ RTX5090 → Job Complete
 
 工程上另外確認：對同一份 `.nsys-rep` 連續執行多次 `nsys stats` 可能因既存 SQLite timestamp 檢查失敗。因此目前 smoke/collector 應以單次 stats invocation 一次指定所需 reports，或明確管理 `--force-export` / SQLite lifecycle。
 
-## 6. RTX 5090 DiskPressure resolution
+## 6. RTX 5090 DiskPressure integration setting
 
-RTX 5090 曾因 root filesystem 使用率約 96% 而進入：
+RTX 5090 root filesystem 目前接近滿載，曾因 kubelet hard eviction threshold 在 Profile Job image pull 階段觸發：
 
 ```text
 DiskPressure=True
-node.kubernetes.io/disk-pressure:NoSchedule
+Pod Reason=Evicted
+ephemeral-storage available < configured threshold
 ```
 
-當時 K3s kubelet default config 使用：
+Live kubelet `configz` 在第一次 Profile preflight 時確認：
 
 ```yaml
 evictionHard:
-  imagefs.available: 5%
-  nodefs.available: 5%
+  imagefs.available: "50Gi"
+  nodefs.available: "50Gi"
+
+evictionPressureTransitionPeriod: 5m
+
+evictionMinimumReclaim:
+  imagefs.available: "10%"
+  nodefs.available: "10%"
 ```
 
-對約 1.8 TiB root filesystem，5% 約代表 90 GiB free threshold；當時約 76 GiB free，因此觸發 DiskPressure。
+第一次 preflight 的 `fetch-pre6g` initContainer 已成功，但在拉取約 4.6 GB 的 Ultralytics image 時跨過 50 GiB threshold，Pod 因 ephemeral-storage pressure 被 eviction。
 
-本輪研究節點在 RTX 5090 加入本機 override：
+為了只完成本輪 E2E integration smoke，RTX5090 暫時加入 kubelet drop-in：
 
 ```text
-/var/lib/rancher/k3s/agent/etc/kubelet.conf.d/99-pre6g-eviction.conf
+/var/lib/rancher/k3s/agent/etc/kubelet.conf.d/99-pre6g-temp-eviction.conf
 ```
 
 內容：
@@ -179,24 +186,14 @@ evictionHard:
 apiVersion: kubelet.config.k8s.io/v1beta1
 kind: KubeletConfiguration
 
-mergeDefaultEvictionSettings: true
-
 evictionHard:
-  nodefs.available: "50Gi"
-  imagefs.available: "50Gi"
+  imagefs.available: "10Gi"
+  nodefs.available: "10Gi"
 ```
 
-重新啟動 `k3s-agent` 後，已驗證：
+重新啟動 `k3s-agent` 後，control-plane live `configz` 已確認 10 GiB override 生效，node 回到 `Ready`，後續 RTX5090 Profile preflight 與完整 Profile Job 均成功。
 
-```text
-DiskPressure=False
-Ready=True
-disk-pressure taint removed
-```
-
-原本 Pending 的 RTX 5090 GPU smoke Pod 隨後自動排程並完成。
-
-這個 override 是研究環境的 node-local operational setting，不代表 50 GiB 適用於所有 production cluster。正式長時間 profiling 前仍應監控剩餘磁碟與 artifact growth。
+這個 10 GiB 值只為短期 integration smoke 解鎖流程，不是 production 建議。RTX5090 root filesystem cleanup 仍是後續必要維運工作；正式長時間 profiling 前應恢復保守 threshold 並重新檢查磁碟餘量。
 
 ## 7. NVIDIA runtime and monitoring state
 
@@ -221,17 +218,54 @@ Netdata 狀態需要在正式 120 秒 profiling 前重新 audit：
 | `iccls2` | NotReady | 不 eligible |
 | `icclz2` | Ready | control-plane，不作 GPU candidate |
 
-## 9. Next integration gates
+## 9. Shared artifact backend and current E2E gate
 
-在正式 120 秒 YOLO26 profiling 前依序完成：
+Current-cluster artifact persistence is now fixed as:
 
-1. 重新驗證 RTX 4090/5090 Netdata child 與必要 feature contract。
-2. 決定跨節點 artifact persistence；目前 smoke test 的 `emptyDir` 只用於 E2E 驗證。
-3. 準備固定版本、固定 digest 的 x86_64 YOLO26 workload image。
-4. 先做 bounded YOLO26 Nsight 2026 compatibility run。
-5. 再執行每 node 固定 120 秒 Profile Job。
-6. 進入 period detection、Netdata timestamp alignment、runtime/power model 與 ranking。
-7. RTX 3090 儲存空間整理後，再重新加入 candidate set 並完整重跑相同 preflight。
+~~~text
+control-plane NFS export
+  -> static PV pre6g-artifacts-nfs
+  -> PVC experiments/pre6g-artifacts
+  -> ReadWriteMany
+~~~
+
+Cross-node Kubernetes smoke has passed:
+
+~~~text
+RTX5090 Pod write                 PASS
+RTX4090 Pod cross-node read       PASS
+RTX4090 Pod write                 PASS
+control-side filesystem readback  PASS
+~~~
+
+RTX5090 profile environment preflight also passed with the fixed repository commit, Nsight Systems 2026.4.1, Pre6G imports/scripts, GPU visibility, and RWX PVC write.
+
+The first complete worker-side profile integration then passed:
+
+~~~text
+task                          yolo26-e2e-5090-smoke-002
+RTX5090 Profile Job           Complete (1/1)
+marker-free detector          PASS
+runtime feature extraction    PASS
+ProfileResult packaging       PASS
+RWX handoff                   PASS
+~~~
+
+Detailed evidence:
+
+~~~text
+docs/evidence/rtx5090-k3s-profile-e2e.md
+~~~
+
+Next integration gates:
+
+1. 在 control side 對這份新的 Kubernetes `runtime-features.json` 執行 frozen RTX5090 runtime inference，產生 `runtime-prediction.json`。
+2. 對 RTX4090 建立等價 Profile Job path。
+3. 重新驗證 RTX4090/5090 Netdata child 與必要 telemetry feature contract。
+4. 準備固定 digest 的正式 workload/profiler image，移除 runtime Git fetch MVP。
+5. 執行 formal fixed 120-second profiling。
+6. 接入 node-bound power model、runtime+power ranking 與 production Job placement。
+7. RTX3090 儲存空間整理後，再重新加入 candidate set。
 
 ## 10. Reproducible cluster audit commands
 
