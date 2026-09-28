@@ -202,6 +202,7 @@ target_unit = W
 - [YOLO26 integration fixture](docs/yolo26-walkthrough.md)
 - [實際 k3s 叢集基線](docs/cluster-baseline.md)
 - [High-load trace 實測依據](docs/evidence/high-load-trace-results.md)
+- [RTX5090 Kubernetes Profile Job E2E evidence](docs/evidence/rtx5090-k3s-profile-e2e.md)
 - [RTX4090/5090 Nsight Systems 2026 smoke manifest](k8s/nsys2026-rtx-smoke.yaml)
 
 ## 已驗證 baseline
@@ -257,6 +258,26 @@ smoke comparison APE = 7.48%
 
 7.48% 只代表 deployment smoke；C03 存在於 final-fit dataset，不能當 held-out 泛化指標。
 
+Kubernetes RTX5090 Profile Job E2E smoke（2026-09-28）：
+
+~~~text
+artifact backend                 NFS-backed static RWX PV/PVC
+cross-node RWX transport         PASS
+Profile Job                      Complete (1/1)
+Nsight report                    35 MB, worker-local
+Nsight SQLite                    104 MB, worker-local
+marker-free execution_cycle      126.8548825 ms
+detector confidence              0.73041
+complete cycles                  118
+selection                        two-window stability
+runtime-features.json            PASS
+profile-result.json              PASS
+ProfileResult status             ready-for-control-side-inference
+manual SCP                       not used
+~~~
+
+正式 handoff 僅把小型 JSON artifacts 寫入 shared RWX PVC；大型 `.nsys-rep` / SQLite 留在 worker-local temporary storage。這次 smoke 尚未包含該新 Kubernetes artifact 的 control-side frozen runtime inference、RTX4090 等價 Profile Job、power prediction 或 automatic placement。
+
 ## CLI
 
 需求：Python 3.10+ 與 PyYAML。
@@ -307,6 +328,8 @@ python scripts/align_telemetry.py --help
 - work-unit-aware decision layer。
 - production Job renderer。
 - RTX4090/RTX5090 Nsight 2026 Kubernetes baseline。
+- current-cluster NFS-backed RWX shared artifact store 與跨節點 ProfileResult transport。
+- RTX5090 Kubernetes Profile Job → marker-free detector → runtime features → ProfileResult E2E smoke。
 
 目前尚未包含：
 
@@ -314,7 +337,6 @@ python scripts/align_telemetry.py --help
 - RTX4090 frozen runtime model；
 - real RTX4090/RTX5090 power model binaries/scalers；
 - 完整 Kubernetes controller reconcile loop；
-- 已固定的 shared artifact-store backend；
 - validated semantic-binding registry；
 - validated Top1/Top2 per-process GPU collector。
 
