@@ -1,26 +1,27 @@
-# Generic workload intake and semantic discovery
+# Generic workload intake and marker-free discovery
 
 ## Goal
 
-Pre6G_experiment must accept arbitrary Kubernetes batch/v1 Jobs. YOLO is only the first integration fixture; the platform core must not require YOLO-specific flags or training semantics.
+Pre6G_experiment must accept arbitrary Kubernetes batch/v1 Jobs. YOLO is only the first integration fixture; the platform core must not require YOLO-specific flags, training callbacks, NVTX markers, or source-code instrumentation.
 
-The intake path is split into two contracts:
+The intake path is split into three contracts:
 
-~~~
+~~~text
 User Job
    |
    +--> Execution Contract
    |      image / command / args / env / resources / volumes
-   |      preserved without semantic interpretation
    |
-   +--> Workload Semantic Contract
-          explicit metadata
-          registered workload adapter
-          runtime discovery
-          or unknown
+   +--> Static Semantic Contract
+   |      explicit metadata / known argv / config / dataset metadata
+   |
+   +--> Marker-Free Runtime Discovery
+          target-process CUDA trace
+          recurring execution cycle
+          period / confidence / stability
 ~~~
 
-A workload can be profileable even when its total work amount is unknown.
+A workload can be profileable even when its total work amount or semantic work unit is unknown.
 
 ## Execution contract
 
@@ -45,20 +46,25 @@ The execution contract preserves:
 - runtimeClassName
 - restart policy
 
-The platform does not need to understand argument semantics in order to launch a dry-run.
+The platform does not need to understand argument semantics to launch a dry-run.
 
-For example, both of these are valid opaque workloads:
+## Static semantic contract
+
+Static semantic discovery may use only information already available outside the application process:
+
+- explicit Pre6G annotations;
+- known command-line arguments;
+- mounted framework configuration;
+- dataset manifest / sample-count metadata;
+- image metadata when explicitly defined by an adapter.
+
+It must not require modifying the user application.
+
+Canonical semantic schema:
 
 ~~~text
-python3 train.py --custom-flag 123
-ffmpeg -i /data/input.mp4 -c:v libx265 -preset slow
+schemas/workload-spec.schema.json
 ~~~
-
-The Profile Job wraps the original argv with Nsight rather than rewriting application parameters.
-
-## Canonical workload semantic contract
-
-Semantic discovery produces schemas/workload-spec.schema.json.
 
 Example:
 
@@ -78,40 +84,16 @@ Example:
     "unit": "training_iteration",
     "total_units": 640,
     "source": "adapter:yolo epochs * ceil(dataset samples / batch)",
-    "assumptions": [],
-    "missing": [],
     "runtime_discovery_required": false
   }
 }
 ~~~
 
-The platform uses generic names:
+This spec expresses application semantics. It does not prove that one detected CUDA recurring cycle equals one semantic work unit.
 
-~~~
-work_unit
-total_work_units
-runtime_per_work_unit
-energy_per_work_unit
-~~~
-
-Examples:
-
-| Workload | work_unit |
-|---|---|
-| YOLO / vision training | training_iteration |
-| LLM fine-tuning | optimizer_step |
-| LLM inference | generated_token |
-| FFmpeg | frame |
-| FAISS build | vector_insert |
-| unknown cyclic CUDA workload | cycle, only after validated discovery |
-
-Do not force every workload into the term "iteration".
-
-## Discovery priority
+## Static discovery priority
 
 ### 1. Explicit canonical metadata
-
-Preferred when the submitter or an upstream admission service already knows the work amount.
 
 ~~~yaml
 metadata:
@@ -123,73 +105,30 @@ metadata:
       {"codec":"h265","resolution":"3840x2160","preset":"slow"}
 ~~~
 
-The JSON parameter object is descriptive/model input metadata. It does not replace command/args.
-
 ### 2. Registered workload adapter
 
-An adapter understands one known workload family and converts framework-specific configuration into the canonical schema.
+An adapter understands one known workload family and translates existing Job/config fields into the canonical schema.
 
-The first adapter is YOLO.
+Current prototype adapter:
 
-Current YOLO adapter can read:
-
-- --model
-- --epochs
-- --batch / --batch-size
-- --imgsz / --img-size
-- --amp
-- pre6g.io/dataset-train-samples
-
-If epochs, batch size, and dataset sample count are available under the stated assumptions:
-
-~~~
-steps_per_epoch = ceil(training_samples / batch)
-total_work_units = epochs * steps_per_epoch
-work_unit = training_iteration
+~~~text
+YOLO
 ~~~
 
-Future adapters may include Hugging Face/LLM training, FFmpeg, FAISS, and other application families.
+Possible future adapters:
 
-Adding an adapter should not change the controller execution path.
-
-### 3. Runtime discovery
-
-Static Job metadata can be incomplete or wrong at runtime.
-
-A workload-specific wrapper or discovery hook may report:
-
-- actual batch size
-- dataloader length
-- optimizer steps
-- world size
-- gradient accumulation
-- generated token target
-- total frame count
-- observed periodic unit boundaries
-
-Runtime-discovered semantics should be stored separately from requested parameters so differences remain visible.
-
-Example:
-
-~~~json
-{
-  "requested": {
-    "batch_size": 16
-  },
-  "discovered": {
-    "actual_batch_size": 16,
-    "steps_per_epoch": 32,
-    "world_size": 1,
-    "gradient_accumulation": 1
-  }
-}
+~~~text
+Hugging Face / LLM training
+FFmpeg
+FAISS
+custom domain adapters
 ~~~
 
-The platform should prefer validated discovered values over assumptions when deriving total runtime.
+Adding an adapter must not change the core execution path.
 
-### 4. Unknown
+### 3. Unknown
 
-An unknown workload remains valid for profiling:
+If no trustworthy static semantics exist:
 
 ~~~json
 {
@@ -206,19 +145,162 @@ An unknown workload remains valid for profiling:
 }
 ~~~
 
-Allowed:
+Unknown semantics do not block profiling.
 
-- short execution compatibility test
-- Nsight target-process trace
-- Netdata/DCGM telemetry
-- period/cycle discovery when technically valid
-- artifact collection
+## Marker-free runtime discovery
 
-Not allowed without additional semantics:
+Production runtime discovery does not depend on user instrumentation.
 
-- extrapolating a per-unit prediction to a total runtime
-- extrapolating to total energy
-- claiming a valid automatic placement based on total job cost
+Allowed runtime evidence:
+
+~~~text
+target-process CUDA trace
+kernel timestamps
+kernel short-name IDs
+process/context IDs
+stream IDs
+~~~
+
+Forbidden production dependencies:
+
+~~~text
+iterations.csv
+NVTX iteration markers
+training callbacks
+epoch/batch labels
+summary.json iteration timing
+source-code instrumentation
+~~~
+
+The first detector output is intentionally semantic-neutral:
+
+~~~json
+{
+  "detected_unit": "execution_cycle",
+  "period_ms": 31.2,
+  "confidence": 0.96,
+  "complete_cycles": 87
+}
+~~~
+
+The detector must not call this a training_iteration merely because the test fixture is a training application.
+
+See [Marker-Free Workload Discovery](marker-free-workload-discovery.md).
+
+## Semantic binding
+
+Static semantics and marker-free execution behavior are joined only after detection.
+
+~~~text
+static semantics:
+  candidate work_unit = training_iteration
+
+marker-free detector:
+  detected_unit = execution_cycle
+
+                 |
+                 v
+
+semantic binding:
+  execution_cycle -> training_iteration ?
+~~~
+
+Binding states:
+
+~~~text
+bound
+unbound
+conflict
+insufficient_evidence
+~~~
+
+If bound:
+
+~~~text
+cycles_per_work_unit
+work_unit
+runtime_per_work_unit
+~~~
+
+can be used for total-work extrapolation.
+
+If unbound, the system reports execution-cycle latency / slowdown only.
+
+## Why this separation matters
+
+A CUDA recurring cycle is not automatically an application iteration.
+
+Possible cases:
+
+~~~text
+1 execution_cycle = 1 training_iteration
+2 execution_cycles = 1 optimizer_step
+1 training_iteration contains multiple CUDA sub-cycles
+~~~
+
+Therefore:
+
+~~~text
+period detection
+!=
+semantic interpretation
+~~~
+
+The detector and workload adapter must remain separate.
+
+## Research validation policy
+
+Instrumented benchmark artifacts may be used only after marker-free output is frozen.
+
+Correct order:
+
+~~~text
+1. Hide iterations.csv / NVTX / callback-derived truth.
+2. Run marker-free detector.
+3. Freeze predicted cycle period.
+4. Reveal hidden ground truth.
+5. Compute validation error.
+~~~
+
+This prevents label leakage into the production method.
+
+## Current YOLO C03 validation status
+
+Static/instrumented validation evidence:
+
+~~~text
+batch = 16
+imgsz = 320
+32 batches / epoch
+steady-window mean iteration = 31.141946287 ms
+GPU-event mean = 27.943115252 ms
+~~~
+
+Marker-free trace preflight on RTX5090:
+
+~~~text
+Nsight Systems 2026.4.1.191
+CUPTI_ACTIVITY_KIND_KERNEL present
+StringIds present
+kernel_count = 653976
+kernel-start span = 17.980515013 s
+single dominant process/context
+~~~
+
+This proves the trace is suitable for marker-free event extraction. It does not yet prove that the correct execution-cycle period can be recovered.
+
+## Work-unit examples
+
+| Workload | semantic work_unit |
+|---|---|
+| Vision training | training_iteration |
+| LLM fine-tuning | optimizer_step |
+| LLM inference | generated_token |
+| Video encoding | frame |
+| FAISS build | vector_insert |
+| Opaque cyclic CUDA workload | unknown until binding |
+
+The detector-level unit is always execution_cycle until binding.
 
 ## Backward compatibility
 
@@ -228,45 +310,30 @@ The original prototype annotation remains accepted:
 pre6g.io/total-iterations: "640"
 ~~~
 
-It is interpreted as:
+It maps to:
 
 ~~~text
 work_unit = training_iteration
 total_work_units = 640
 ~~~
 
-New integrations should use pre6g.io/work-unit + pre6g.io/total-work-units.
+New integrations should use:
 
-## Runtime prediction contract
-
-A generic runtime result should declare the semantic unit:
-
-~~~json
-{
-  "runtime": {
-    "status": "ready",
-    "work_unit": "training_iteration",
-    "predicted_runtime_ms_per_work_unit": 42.1
-  }
-}
+~~~text
+pre6g.io/work-unit
+pre6g.io/total-work-units
 ~~~
-
-The decision layer verifies that the runtime model work unit matches the workload work unit before multiplying by total_work_units.
-
-The legacy predicted_runtime_ms_per_iteration field is retained only for compatibility.
 
 ## Phase 05 acceptance criteria
 
-Phase 05 validates workload intake, not final prediction accuracy.
-
-PASS requires:
+Phase 05 PASS requires:
 
 1. arbitrary batch/v1 Job can be inspected;
-2. original image/command/args/resources are captured as an execution contract;
-3. semantic discovery produces a valid canonical workload spec;
+2. original image/command/args/resources are captured without semantic rewriting;
+3. static semantic discovery produces a canonical workload spec or explicit unknown state;
 4. unknown semantics do not block profiling;
-5. the YOLO fixture can be interpreted through the YOLO adapter;
-6. runtime-discovered values can later be compared with requested/estimated values;
-7. the same unmodified application contract can be used to create node-pinned dry-run Jobs.
-
-YOLO-specific container execution and short cluster runs are the first integration test, not the platform boundary.
+5. marker-free extraction uses only target-process CUDA trace;
+6. detector does not depend on iterations.csv, NVTX, callbacks, or user code changes;
+7. detector emits execution_cycle before semantic binding;
+8. semantic binding is explicit and can remain unbound;
+9. instrumented ground truth is validation-only.
