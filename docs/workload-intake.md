@@ -126,6 +126,40 @@ custom domain adapters
 
 Adding an adapter must not change the core execution path.
 
+### Adapter 與 automatic work discovery 的關係
+
+Automatic work discovery 不會建立第二套 workload-family adapter，也不會覆寫既有 YOLO adapter。
+
+正式責任分工：
+
+~~~text
+work.py / YOLO adapter
+  original argv/config
+  -> workload_family
+  -> parameters
+  -> candidate work_unit
+  -> data path / epochs / batch
+
+work_discovery.py
+  consumes adapter output
+  + same mounted dataset
+  -> dataset cardinality
+  -> steps_per_epoch
+  -> total_work_units
+~~~
+
+若 static adapter 已經從可信 metadata 得到 total work，work discovery 直接保留該結果；若 total work 未知且 adapter=yolo，才讀 application 原本已掛載的 dataset。Unknown adapter 仍維持 unresolved，不會猜測 total work。
+
+Current CLI：
+
+~~~bash
+PYTHONPATH=src python scripts/discover_work.py \
+  --job source-job.yaml \
+  --output workload-discovery.json
+~~~
+
+Production discovery 不使用 training-step 位置、iteration timestamp、NVTX、callback 或 `iterations.csv`.
+
 ### 3. Unknown
 
 If no trustworthy static semantics exist:
@@ -225,6 +259,24 @@ runtime_per_work_unit
 can be used for total-work extrapolation.
 
 If unbound, the system reports execution-cycle latency / slowdown only.
+
+Current fail-closed registry implementation：
+
+~~~text
+src/pre6g_experiment/semantic_binding.py
+~~~
+
+目前唯一啟用的 binding：
+
+~~~text
+adapter           yolo
+detector_profile  yolo-v1
+detected_unit     execution_cycle
+work_unit         training_iteration
+cycles_per_unit   1
+~~~
+
+其 scope 僅限目前已驗證的 YOLO26 fixture family；其他 adapter/profile 組合會 reject，不會自動假設 1:1。
 
 ## Why this separation matters
 
