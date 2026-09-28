@@ -150,4 +150,6 @@ worker marker-free trace
   -> runtime-prediction.json
 ~~~
 
-Manual SCP was used only to validate the interface before the Kubernetes artifact handoff is automated.
+Manual SCP was used only for the earlier component-interface smoke. The current k3s deployment now has a validated NFS-backed RWX artifact handoff, and task `yolo26-e2e-5090-smoke-002` produced a control-side-visible `profile-result.json` directly from an RTX5090 Kubernetes Profile Job.
+
+The new Kubernetes smoke detected an `execution_cycle` of 126.8548825 ms at confidence 0.7304067523 with 118 complete cycles, then emitted `runtime-features.json` and a `pre6g.profile-result/v1` payload with status `ready-for-control-side-inference`. This new artifact has not yet been passed through the frozen control-side runtime model; that is the next integration gate.
