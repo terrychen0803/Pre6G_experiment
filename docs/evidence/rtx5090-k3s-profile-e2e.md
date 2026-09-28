@@ -267,25 +267,133 @@ NFS-backed RWX PVC
 control side
 ~~~
 
+## Control-side runtime inference
+
+The exact Kubernetes-produced `runtime-features.json` was consumed on `icclz2` with the frozen deployment-smoke model:
+
+~~~text
+model                  RTX5090_yolo_trace_only_v1
+device_id              RTX5090
+detected_unit          execution_cycle
+feature_count          7
+predicted_runtime_ms   115.60792921841606
+model_role             deployment-smoke
+~~~
+
+Schema, model ID, device binding, detector profile, feature count and finite-positive prediction checks all passed.
+
+The shared artifact store now also contains:
+
+~~~text
+runtime-prediction.json
+~~~
+
+The first host-side write required an administrative install because the current NFS result directory was created through root-squashed Pod access and is owned by `nobody:nogroup`. This is a control-process identity/permissions integration issue, not a runtime-model inference failure; the formal controller should mount the RWX PVC and write with a compatible Pod identity.
+
+## Automatic total-work discovery smoke
+
+A separate Kubernetes work-discovery Job used only the original workload arguments and the workload-visible mounted dataset.
+
+Observed sources:
+
+~~~text
+epochs       original Job argv
+batch_size   original Job argv
+dataset      mounted dataset
+~~~
+
+Observed result:
+
+~~~text
+epochs                  4
+batch_size              16
+training samples        512
+steps_per_epoch         32
+total work units        128
+work unit               training_iteration
+Job                     Complete (1/1)
+duration                15 s
+~~~
+
+Production input policy:
+
+~~~text
+uses_iterations_csv     false
+uses_nvtx               false
+uses_callbacks          false
+uses_epoch_timestamps   false
+uses_batch_timestamps   false
+~~~
+
+Therefore the value 128 was not obtained from training-step positions or hidden instrumentation. It was derived from static workload semantics plus mounted-dataset cardinality:
+
+~~~text
+ceil(512 / 16) * 4 = 128
+~~~
+
+## Semantic binding and steady runtime
+
+The validated YOLO/yolo-v1 binding is currently fail-closed:
+
+~~~text
+execution_cycle -> training_iteration
+cycles_per_work_unit = 1
+source = validated-yolo-v1-offline-evidence
+~~~
+
+For this smoke:
+
+~~~text
+predicted runtime / execution_cycle   115.60792921841606 ms
+predicted runtime / training_iteration 115.60792921841606 ms
+total work units                       128
+predicted steady runtime               14.797814939957256 s
+~~~
+
+This value is explicitly a steady-work extrapolation, not yet a whole-job runtime. The current semantic runtime contract keeps:
+
+~~~text
+predicted_total_job_runtime_s = null
+total_job_runtime_status = pending-non-steady-overhead-model
+~~~
+
+until startup, warmup, validation, checkpoint and finalization overhead are modeled separately.
+
 ## Current integration boundary
 
 Completed:
 
 ~~~text
-shared NFS/RWX artifact backend       PASS
-cross-node Kubernetes RWX transport  PASS
-RTX5090 profile environment preflight PASS
-RTX5090 Nsight Profile Job           PASS
-marker-free detector                 PASS
-runtime feature extraction           PASS
-ProfileResult packaging              PASS
-control-side visibility              PASS
+shared NFS/RWX artifact backend        PASS
+cross-node Kubernetes RWX transport    PASS
+RTX5090 profile environment preflight  PASS
+RTX5090 Nsight Profile Job             PASS
+marker-free detector                   PASS
+runtime feature extraction             PASS
+ProfileResult packaging                PASS
+control-side frozen runtime inference  PASS
+automatic mounted-dataset work discovery PASS
+YOLO/yolo-v1 semantic binding smoke    PASS
+steady runtime aggregation             PASS
 ~~~
 
-Not yet completed by this smoke:
+Repository implementation now includes:
 
 ~~~text
-control-side frozen runtime inference on this new Kubernetes artifact
+src/pre6g_experiment/work_discovery.py
+src/pre6g_experiment/semantic_binding.py
+src/pre6g_experiment/runtime_aggregation.py
+scripts/discover_work.py
+scripts/aggregate_runtime.py
+schemas/work-discovery.schema.json
+schemas/semantic-binding.schema.json
+schemas/semantic-runtime.schema.json
+~~~
+
+Not yet completed:
+
+~~~text
+whole-job non-steady overhead model
 RTX4090 equivalent Profile Job
 automatic controller create/wait/read/infer reconcile loop
 real RTX4090 runtime model
@@ -295,4 +403,4 @@ automatic production Job placement
 formal fixed 120-second profiling
 ~~~
 
-The immediate next integration step is to consume this exact `runtime-features.json` on the control side with the frozen RTX5090 deployment-smoke runtime model and emit `runtime-prediction.json`, then repeat the worker path on RTX4090.
+The next runtime-specific integration gate is whole-job runtime composition; the next multi-node gate is the equivalent RTX4090 worker path.
