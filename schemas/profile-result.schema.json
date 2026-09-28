@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/pre6g/profile-result.schema.json",
+  "title": "Pre6G Profile Result",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "task_id",
+    "node",
+    "device_id",
+    "status",
+    "detector",
+    "runtime_features",
+    "transport_contract"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "pre6g.profile-result/v1"
+    },
+    "task_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "node": {
+      "type": "string",
+      "minLength": 1
+    },
+    "device_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "const": "ready-for-control-side-inference"
+    },
+    "detector": {
+      "type": "object",
+      "required": [
+        "detected_unit",
+        "detector_profile",
+        "detected_period_ms",
+        "confidence",
+        "complete_cycles",
+        "target_global_pid",
+        "target_context_id"
+      ]
+    },
+    "runtime_features": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "trace_features"
+      ]
+    },
+    "transport_contract": {
+      "type": "object",
+      "required": [
+        "preferred",
+        "scp",
+        "path_template"
+      ],
+      "properties": {
+        "preferred": {
+          "const": "shared-artifact-store"
+        },
+        "scp": {
+          "const": "smoke-test-only"
+        },
+        "path_template": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  },
+  "additionalProperties": true
+}
