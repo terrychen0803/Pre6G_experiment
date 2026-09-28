@@ -374,3 +374,84 @@ kubectl -n experiments get jobs,pods   -l pre6g.io/task-id=<task-id> -o wide
 - target process/context trace invalid；
 
 則不偽造最佳節點。
+
+
+## Worker-side runtime feature/result finalization
+
+正式 k3s Profile Job 在 Nsight report 匯出與 marker-free detector 完成後，還要在 worker 上完成兩個小型 artifact：
+
+~~~text
+runtime-features.json
+profile-result.json
+~~~
+
+第一步：
+
+~~~bash
+PYTHONPATH=src python scripts/build_runtime_features.py \
+  --sqlite /artifacts/profile.sqlite \
+  --detection-json /artifacts/marker-free-discovery.json \
+  --output /artifacts/runtime-features.json \
+  --node "$NODE_NAME" \
+  --device-id "$DEVICE_ID" \
+  --workload-id "$WORKLOAD_ID"
+~~~
+
+第二步：
+
+~~~bash
+PYTHONPATH=src python scripts/package_profile_result.py \
+  --task-id "$TASK_ID" \
+  --node "$NODE_NAME" \
+  --device-id "$DEVICE_ID" \
+  --detection-json /artifacts/marker-free-discovery.json \
+  --runtime-features-json /artifacts/runtime-features.json \
+  --output /artifacts/profile-result.json
+~~~
+
+這兩步都不讀：
+
+~~~text
+iterations.csv
+NVTX iteration labels
+training callbacks
+epoch/batch labels
+~~~
+
+## Profile Job → Controller transport
+
+正式流程不使用人工 SCP。
+
+建議 artifact path：
+
+~~~text
+results/<task_id>/<node>/profile-result.json
+~~~
+
+transport abstraction：
+
+~~~text
+shared-artifact-store
+~~~
+
+實際 backend 可為 RWX PVC / NFS / MinIO / S3-compatible store；目前 storage backend 尚未 freeze，因此本 repo 先固定資料契約，不硬編未驗證的 storage implementation。
+
+Controller 只需要讀小型 ProfileResult/runtime feature artifact，再在 control side 執行：
+
+~~~bash
+PYTHONPATH=src python scripts/predict_runtime.py \
+  --model models/runtime/<device-model>.json \
+  --features results/<task_id>/<node>/runtime-features.json \
+  --output results/<task_id>/<node>/runtime-prediction.json
+~~~
+
+完整 handoff contract：
+
+~~~text
+docs/profile-result-contract.md
+schemas/profile-result.schema.json
+schemas/runtime-features.schema.json
+schemas/runtime-prediction.schema.json
+~~~
+
+人工 `scp` 僅限 component bring-up/smoke，不得出現在正式 controller reconcile path。
