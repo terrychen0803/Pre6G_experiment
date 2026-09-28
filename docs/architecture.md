@@ -290,7 +290,7 @@ contextId = 1
 kernel_count = 653976
 ~~~
 
-這表示 marker-free extractor 可進入下一步，但尚未證明 stable execution-cycle period 已成功 recover。
+後續 C03 validation 已證明 yolo-v1 可 recover stable execution_cycle；same-window hidden-oracle APE 為 1.67%。
 
 ## Research ground truth policy
 
