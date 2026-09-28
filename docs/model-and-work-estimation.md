@@ -346,3 +346,49 @@ total_work_units = 640
 - node-bound power model綁定 candidate node + physical GPU UUID。
 
 若 semantic binding 或 total work 未知，平台保持 profile-only / relative-performance mode。
+
+
+## Current runtime-model implementation
+
+The current deployment repository includes an offline reference runner:
+
+~~~text
+scripts/run_unified_trace_model.py
+~~~
+
+It preserves the clean/high-load grouped evaluation structure from the validated reference workspace, but changes the telemetry contract for deployment alignment.
+
+Required per sample:
+
+~~~text
+condition
+workload_id
+sqlite_path
+detection_json
+target_runtime_ms
+timestamps_json
+telemetry_csv
+~~~
+
+Optional:
+
+~~~text
+trace_runtime_ms
+baseline_repeat_cv_percent
+~~~
+
+Pre-run telemetry window:
+
+~~~text
+anchor = application_start_ns
+fallback = profile_start_ns
+
+window =
+[anchor - 5 s, anchor)
+~~~
+
+The source is timestamps.json plus canonical aligned Netdata/DCGM telemetry. iterations.csv is never used to locate the window.
+
+All clean/high-load samples are required to provide telemetry in this deployment-oriented runner. This avoids reproducing the historical missing-telemetry/condition-identity confound.
+
+The runner remains an offline model-development/reference evaluator. A future production runtime adapter must load a frozen model/scaler/feature-schema bundle and perform single-request inference rather than retraining inside the scheduling path.
