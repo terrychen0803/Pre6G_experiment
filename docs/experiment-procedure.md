@@ -522,7 +522,40 @@ confidence
 complete_cycles
 ~~~
 
-只有 semantic binding validated 後，runtime adapter 才可輸出：
+Worker-side Profile Job 接著建立：
+
+~~~text
+runtime-features.json
+profile-result.json
+~~~
+
+正式工具：
+
+~~~text
+scripts/build_runtime_features.py
+scripts/package_profile_result.py
+~~~
+
+大型 Nsight trace 留在 worker/artifact store；controller 只需要取得小型 ProfileResult/runtime feature artifact。
+
+Control side 使用 frozen model：
+
+~~~text
+scripts/predict_runtime.py
+models/runtime/<device-bound-model>.json
+~~~
+
+`predict_runtime.py` 僅做 inference，不重新 fit、不重新選 alpha。
+
+目前已可用於 deployment smoke：
+
+~~~text
+models/runtime/RTX5090_yolo_trace_only_v1.json
+~~~
+
+此 bundle 僅適用 RTX5090 + YOLO26 validation family + yolo-v1 trace feature schema；不可 fallback 給 RTX4090 或其他 workload。
+
+只有 semantic binding validated 後，runtime adapter 才可把 execution_cycle prediction 綁定成 semantic work unit：
 
 ~~~text
 work_unit
@@ -649,10 +682,66 @@ Phase 05A Generic workload intake
 Phase 05C marker-free trace preflight on RTX5090 C03
 ~~~
 
-目前進行：
+目前已完成：
 
 ~~~text
 Phase 05C deployment detector integration validation
+Phase 05C C03 same-window hidden-oracle validation
+Phase 05D runtime trace feature extraction
+Phase 05D RTX5090 frozen-model creation
+Phase 05D control-side runtime inference smoke
 ~~~
 
-目前 marker-free event extraction 已以 RTX5090 C03 完成一次手動驗證，且相同邏輯已正式落到 scripts/extract_marker_free_trace.py。下一步使用 scripts/evaluate_trace_event_periods.py 對既有 C03 SQLite 執行 yolo-v1 detector，確認 production-style output 與 reference path 對齊，之後再進 RTX4090/RTX5090 Kubernetes short-profile validation。
+目前下一步：
+
+~~~text
+Kubernetes Profile Job
+  -> worker-side feature/result artifact
+  -> shared artifact store
+  -> control-side frozen inference
+~~~
+
+也就是把已驗證的 component path 收斂回 k3s automation；不再以人工 SCP 作正式 transport。
+
+
+## Phase 08A：Kubernetes ProfileResult handoff
+
+正式流程不使用人工 SCP。
+
+Profile Job 在 candidate worker 完成 marker-free detector 與 feature extraction 後，寫入：
+
+~~~text
+results/<task_id>/<node>/
+  marker-free-discovery.json
+  runtime-features.json
+  profile-result.json
+~~~
+
+契約：
+
+~~~text
+docs/profile-result-contract.md
+schemas/profile-result.schema.json
+schemas/runtime-features.schema.json
+~~~
+
+正式 transport 預設抽象為 shared-artifact-store；實際 RWX PVC / NFS / MinIO / S3 backend 尚未 freeze，因此 repository 不硬編一個未驗證 storage implementation。
+
+Controller 等待各 candidate 的 ProfileResult 後，在 control side 執行 frozen runtime prediction，再進 power/ranking gate。
+
+## Current component-level runtime inference evidence
+
+RTX5090 C03：
+
+~~~text
+marker-free period                 129.988614 ms
+same-window hidden oracle          132.1907935 ms
+detector APE                       1.67%
+
+frozen runtime model               RTX5090_yolo_trace_only_v1
+control-side prediction            109.251714 ms
+unprofiled smoke reference         118.080153 ms
+smoke comparison APE               7.48%
+~~~
+
+7.48% 只用於 deployment smoke，不能當 held-out model accuracy，因為 C03 包含於 final-fit dataset。
