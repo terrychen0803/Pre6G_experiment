@@ -472,3 +472,35 @@ artifacts/<task-id>/<node>/<attempt>/
 研究 fixture 的 iterations.csv / summary.json 等 instrumentation artifacts 不屬於 production-required artifact contract。
 
 不要使用 k3s local-path RWO PVC 當跨節點共享 artifact store。
+
+
+## Runtime implementation mapping
+
+The deployment repository now maps the previously validated reference workflow into explicit platform components.
+
+~~~text
+PreG_result reference
+  evaluate_trace_event_periods.py
+        |
+        v
+Pre6G_experiment
+  src/pre6g_experiment/marker_free.py
+  scripts/evaluate_trace_event_periods.py
+
+Pre6G_result reference
+  run_unified_trace_model.py
+        |
+        v
+Pre6G_experiment
+  src/pre6g_experiment/runtime_features.py
+  scripts/run_unified_trace_model.py
+~~~
+
+The platform version intentionally changes four integration rules:
+
+1. NVTX is optional post-detection audit data. CUPTI kernel activity and StringIds are the required production trace tables.
+2. globalPid/contextId isolation happens before period detection. A multi-group trace is rejected unless the target is explicitly selected.
+3. The current 20–2000 ms period range and supported 2x harmonic correction belong to the yolo-v1 detector profile; they are not generic workload semantics.
+4. Pre-run telemetry is selected from absolute timestamps.json boundaries and canonical aligned Netdata/DCGM samples. iterations.csv is not used to locate the telemetry window.
+
+This keeps the detector/runtime-model logic aligned with the validated project results while making the execution path suitable for opaque Kubernetes workloads.
