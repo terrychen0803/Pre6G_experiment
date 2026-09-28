@@ -417,6 +417,46 @@ usable columns:
 
 因此目前 Phase 05 下一步是 marker-free event extraction，而不是再次分析 iterations.csv。
 
+## Phase 05F：Current marker-free implementation checkpoint
+
+The platform implementation now contains the following executable path:
+
+~~~text
+scripts/extract_marker_free_trace.py
+  -> target process/context isolation
+  -> marker-free event artifact
+
+scripts/evaluate_trace_event_periods.py
+  -> yolo-v1 period detection
+  -> execution_cycle period/confidence/stability
+
+scripts/run_unified_trace_model.py
+  -> offline clean/high-load runtime-model reference evaluation
+  -> pre-run telemetry anchored by timestamps.json
+~~~
+
+Reference-alignment corrections already applied:
+
+~~~text
+NVTX_EVENTS          optional audit only
+globalPid/contextId  isolated before detection
+20–2000 ms + 2x rule yolo-v1 profile only
+iterations.csv       not used for pre-run telemetry window
+~~~
+
+For the current RTX5090 C03 trace, marker-free extraction has already produced:
+
+~~~text
+kernel events        653976
+kernel span          17.980515013 s
+unique kernel IDs    81
+CUDA streams         5
+dominant stream      7
+single CUDA group    globalPid=327417436569600, contextId=1
+~~~
+
+The next execution step is to run the repository scripts on this existing C03 SQLite and confirm that the yolo-v1 detector reproduces a stable execution_cycle without using instrumentation-derived labels.
+
 ## Phase 06：Short Profile Compatibility
 
 把 Phase 05 已通過的同一 application contract 包進固定 Nsight 2026。
