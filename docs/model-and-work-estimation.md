@@ -2,10 +2,11 @@
 
 ## 核心原則
 
-Pre6G_experiment 將兩件事分開：
+Pre6G_experiment 將三件事分開：
 
 1. **Execution Contract**：如何原封不動地執行使用者的 Job。
-2. **Workload Semantic Contract**：平台是否理解這個 workload 的模型參數、work unit 與 total work。
+2. **Static Workload Semantic Contract**：平台從 Job / config / metadata 理解到的 workload family、parameters、work unit 與 total work。
+3. **Marker-Free Runtime Discovery**：平台從 target-process CUDA trace 偵測到的 recurring execution cycle、period、confidence 與 stability。
 
 因此：
 
@@ -13,51 +14,41 @@ Pre6G_experiment 將兩件事分開：
 不知道 total work
 ≠
 不能 profiling
+
+偵測到 execution_cycle
+≠
+已證明它就是 training_iteration
 ~~~
 
-Unknown workload 仍可做 dry-run、Nsight、Netdata/DCGM、period/cycle discovery 與 artifact collection；只是不能把 per-work-unit prediction 外推成可信的 total runtime / total energy。
+Unknown workload 仍可做 dry-run、Nsight、Netdata/DCGM、cycle discovery 與 artifact collection；只是不能把 execution-cycle latency 直接外推成可信的 total runtime / total energy。
 
-完整 intake contract 見 [Generic workload intake](workload-intake.md)。
+## Production runtime discovery 不依賴 instrumentation
 
-## Runtime model lifecycle
+正式 production path 允許：
 
-每個 prediction 必須帶足夠的 model identity、trace contract 與 work-unit semantics。Generic contract 建議：
+- original Job / argv；
+- mounted config；
+- explicit metadata；
+- dataset metadata；
+- target-process CUDA trace；
+- Netdata/DCGM telemetry。
 
-~~~json
-{
-  "status": "ready",
-  "backend": "target-process-cuda-trace",
-  "supported_sharing_strategies": ["time-slicing"],
-  "capture_policy": "fixed-profile-wall-window",
-  "configured_capture_seconds": 120,
-  "observed_cuda_active_seconds": 120,
-  "wall_timeout_seconds": 300,
-  "detector_windows_seconds": [7, 9, 12, 15, 20, 30],
-  "model_version": "...",
-  "feature_schema_version": "...",
-  "work_unit": "training_iteration",
-  "predicted_runtime_ms_per_work_unit": 42.1,
-  "confidence": 0.93,
-  "ood": false
-}
+正式 detector 不依賴：
+
+~~~text
+iterations.csv
+NVTX iteration markers
+training callbacks
+epoch/batch labels
+summary.json iteration timing
+source-code instrumentation
 ~~~
 
-允許的狀態：
+這些 instrumented artifacts 只能作 research validation ground truth。
 
-- ready：可進入 gate。
-- unavailable：profiling 可完成，但不可自動選點。
-- schema_mismatch：保留 artifact，等待相容 extractor/model。
-- rejected_ood：模型存在，但這筆 workload 不在有效範圍。
-
-Legacy predicted_runtime_ms_per_iteration 暫時保留相容性；新 adapter/model 應使用 work_unit + predicted_runtime_ms_per_work_unit。
-
-模型定版前，平台以 profile-only 運作。
-
-## Workload semantic discovery 優先序
+## Static semantic discovery 優先序
 
 ### 1. Explicit canonical metadata
-
-最可信的方式：
 
 ~~~yaml
 metadata:
@@ -69,95 +60,163 @@ metadata:
       {"model":"yolo26n","batch_size":16,"input_size":640}
 ~~~
 
-其中：
-
-- workload-family：描述 workload family。
-- work-unit：定義 runtime prediction 的語意單位。
-- total-work-units：完整任務的 work amount。
-- workload-parameters-json：可選的 canonical parameter map。
-
 這些 metadata 不取代 application command/args。
 
 ### 2. Registered workload adapter
 
-平台可針對已知 framework 提供 adapter。
+Adapter 可以解析它宣告支援的既有 framework interface，例如：
 
-第一個 prototype adapter 是 YOLO。它可從原始 argv 與 dataset metadata 抽取：
+- known CLI flags；
+- standard config file；
+- dataset manifest。
 
-- model
-- epochs
-- batch size
-- input size
-- AMP
-- training sample count
+目前第一個 prototype adapter 是 YOLO。
 
 在 single-GPU、無 gradient accumulation、無 drop-last 等明示 assumptions 下：
 
 ~~~text
 steps_per_epoch = ceil(training_samples / effective_batch_size)
 total_work_units = epochs × steps_per_epoch
-work_unit = training_iteration
+candidate work_unit = training_iteration
 ~~~
 
-未來可新增：
+這是 static semantic estimate，不是 marker-free detector output。
 
-- HuggingFace / LLM fine-tuning adapter
-- FFmpeg adapter
-- FAISS adapter
-- 其他 application-specific adapter
+### 3. Unknown
 
-Adapter 是 semantic layer；不應改寫 execution contract。
+若無法取得可信 static semantics：
 
-### 3. Runtime discovery
+~~~text
+profileable = true
+work.status = unknown
+work.unit = null
+work.total_units = null
+~~~
 
-即使 static metadata 看起來完整，runtime 仍可能不同。
+平台仍可進入 marker-free profiling。
 
-例如：
+## Marker-free runtime discovery
 
-- OOM auto batch reduction
-- gradient accumulation
-- distributed world size
-- sampler / drop-last
-- dataset filtering
-- dynamic sequence length / batching
+Marker-free detector 先輸出：
 
-因此 dry-run 可記錄：
+~~~json
+{
+  "detected_unit": "execution_cycle",
+  "period_ms": 31.2,
+  "confidence": 0.96,
+  "complete_cycles": 87
+}
+~~~
 
-- actual batch size
-- dataloader length / steps per epoch
-- optimizer steps
-- world size
-- gradient accumulation
-- actual work-unit boundaries
+Detector 不應先驗地把 execution_cycle 命名成 training_iteration、optimizer_step、frame 或 token。
 
-Requested 與 discovered 值應分開保存。
+原因是：
 
-Runtime discovery 可以更新 total-work estimate，但不能偷偷改變 model input schema；是否能作為模型特徵由 model manifest 決定。
+~~~text
+1 semantic work unit
+可能包含
+N 個 CUDA recurring cycles
+~~~
 
-### 4. Unknown
+或：
 
-若仍無法確認：
+~~~text
+1 detected CUDA cycle
+可能只是
+1 semantic work unit 的子週期
+~~~
 
-- profileable=true
-- work.status=unknown
-- work.unit=null 或只有已知 unit
-- work.total_units=null
-- runtime_discovery_required=true
+因此 period detection 與 semantic interpretation 必須分開。
 
-此時允許 profiling，但：
+## Semantic binding gate
 
-- 不輸出虛假的 total runtime。
-- 不輸出虛假的 total energy。
-- 若自動 placement 需要 total job cost，保持 profile-only。
-- 可保存 per-cycle / per-work-unit evidence，待語意確認後再外推。
+Static semantic layer 可能知道：
+
+~~~text
+candidate work_unit = training_iteration
+total_work_units = 640
+~~~
+
+Marker-free detector 知道：
+
+~~~text
+detected_unit = execution_cycle
+period_ms = ...
+~~~
+
+需要額外 binding：
+
+~~~text
+execution_cycle
+      ↓
+semantic binding
+      ↓
+training_iteration
+~~~
+
+Binding state：
+
+~~~text
+bound
+unbound
+conflict
+insufficient_evidence
+~~~
+
+若 bound，還需保存：
+
+~~~text
+cycles_per_work_unit
+binding source
+binding version
+~~~
+
+Example：
+
+~~~json
+{
+  "status": "bound",
+  "detected_unit": "execution_cycle",
+  "work_unit": "training_iteration",
+  "cycles_per_work_unit": 1,
+  "source": "validated-workload-adapter"
+}
+~~~
+
+Production binding 不得讀取目前 run 的 hidden iterations.csv / NVTX label。
+
+## Runtime model lifecycle
+
+Semantic binding validated 後，generic runtime prediction 才能宣告 semantic unit：
+
+~~~json
+{
+  "status": "ready",
+  "backend": "target-process-cuda-trace",
+  "supported_sharing_strategies": ["time-slicing"],
+  "capture_policy": "fixed-profile-wall-window",
+  "configured_capture_seconds": 120,
+  "observed_cuda_active_seconds": 120,
+  "model_version": "...",
+  "feature_schema_version": "...",
+  "work_unit": "training_iteration",
+  "predicted_runtime_ms_per_work_unit": 42.1,
+  "confidence": 0.93,
+  "ood": false
+}
+~~~
+
+如果 binding 尚未成立：
+
+~~~text
+detected_unit = execution_cycle
+~~~
+
+只能報 cycle latency / slowdown evidence，不應偽裝成 semantic per-work-unit prediction。
 
 ## Work unit 抽象
 
-平台不把所有 workload 都稱為 iteration。
-
-例如：
-
-| Workload | work_unit |
+| Workload | semantic work_unit |
 |---|---|
 | Vision training | training_iteration |
 | LLM fine-tuning | optimizer_step |
@@ -165,39 +224,26 @@ Runtime discovery 可以更新 total-work estimate，但不能偷偷改變 model
 | Video encoding | frame |
 | FAISS build | vector_insert |
 
-只有 runtime prediction 的 work_unit 與 workload spec 的 work_unit 一致，才能：
+Detector-level unit：
 
 ~~~text
-T_total = runtime_per_work_unit × total_work_units
+execution_cycle
 ~~~
 
-Decision layer 會拒絕 work-unit mismatch。
+只有 binding validated 後，兩者才可以連接。
 
-## Backward compatibility
+## Total runtime
 
-舊 prototype annotation：
-
-~~~yaml
-pre6g.io/total-iterations: "640"
-~~~
-
-仍可使用，會轉換為：
+若：
 
 ~~~text
-work_unit = training_iteration
-total_work_units = 640
+semantic binding validated
+work_unit known
+total_work_units known
+runtime model ready
 ~~~
 
-新工作負載應改用：
-
-~~~text
-pre6g.io/work-unit
-pre6g.io/total-work-units
-~~~
-
-## 總 runtime 與 energy
-
-Generic steady-state approximation：
+才允許：
 
 ~~~text
 T_total_s =
@@ -207,39 +253,96 @@ T_total_s =
   + T_finalize_s
 ~~~
 
-Energy：
+簡化 steady-state 外推：
 
 ~~~text
-E_observed_window_j = trapezoid_integral(P_predicted(t), t)
-
-P_incremental(t) =
-    max(0, P_node_predicted(t) - P_idle_node)
-
-E_total_j ≈
-    E_startup_j
-  + E_steady_j
-  + E_finalize_j
+T_steady ≈ predicted_runtime_per_work_unit × total_work_units
 ~~~
 
-如果 runtime model 只預測 steady work unit，startup/warmup/finalization 必須分開量測或列為未建模誤差。
+如果 total_work_units 未知：
+
+- 可以報 cycle latency；
+- 可以報 relative slowdown；
+- 可以做 OOD / stability evaluation；
+- 預設不建立 total-job energy placement。
+
+## Total energy
+
+第一版 power model contract：
+
+~~~text
+target_semantics = node-total-power
+target_unit = W
+~~~
+
+Node incremental power：
+
+~~~text
+P_incremental(t) =
+    max(0, P_node_predicted(t) - P_idle_node)
+~~~
+
+只有 total-runtime semantics 成立後才能合理外推 total energy。
+
+## Research validation methodology
+
+Instrumented fixture 正確用途：
+
+~~~text
+marker-free detector
+       ↓
+freeze output
+       ↓
+reveal hidden instrumentation
+       ↓
+compare error
+~~~
+
+例如目前 YOLO C03 hidden validation ground truth：
+
+~~~text
+steady-window mean iteration = 31.141946287 ms
+GPU-event mean = 27.943115252 ms
+32 batches / epoch
+~~~
+
+這些數字不能作 marker-free detector input。
+
+## Backward compatibility
+
+舊 prototype annotation：
+
+~~~yaml
+pre6g.io/total-iterations: "640"
+~~~
+
+仍會被轉成：
+
+~~~text
+candidate work_unit = training_iteration
+total_work_units = 640
+~~~
+
+但這只代表 static semantic declaration，不代表 marker-free detector 已證明 execution_cycle 與 training_iteration 一一對應。
 
 ## 自動選點 gate
 
-所有條件成立才允許自動選點：
+所有條件成立才允許 total-job automatic placement：
 
-- runtime adapter status=ready
-- power adapter status=ready
-- runtime work_unit 與 workload spec 相符
-- 若要 total-job ranking，total_work_units 已知
-- schema versions 相符
-- ood=false
-- confidence 達門檻
-- target-process trace detector 至少觀察三個完整 cycles
-- Netdata/DCGM alignment quality 達門檻
-- 必要 feature 無缺失
-- shared mode 使用 target-process-cuda-trace
-- target CUDA process 已辨識、trace 為 hardware trace
-- sharing state 完整記錄
-- node-bound power model 綁定 candidate node + physical GPU UUID
+- runtime adapter status=ready；
+- power adapter status=ready；
+- marker-free detector stability pass；
+- semantic binding status=bound；
+- runtime work_unit 與 workload spec 相符；
+- total_work_units 已知；
+- model schema versions 相符；
+- ood=false；
+- confidence 達門檻；
+- target-process trace detector至少觀察三個完整 cycles；
+- Netdata/DCGM alignment quality達門檻；
+- 必要 feature 無缺失；
+- target CUDA process/context 已辨識；
+- sharing state完整；
+- node-bound power model綁定 candidate node + physical GPU UUID。
 
-若 total work 未知，平台可以保留 per-work-unit prediction，但預設不建立 production Job。
+若 semantic binding 或 total work 未知，平台保持 profile-only / relative-performance mode。
