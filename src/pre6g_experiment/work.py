@@ -188,6 +188,7 @@ def _yolo_adapter(
     tokens = _command_tokens(job)
 
     model = _option(tokens, ("--model", "model"))
+    data = _option(tokens, ("--data", "data"))
     epochs = _positive_int(_option(tokens, ("--epochs", "epochs")))
     batch = _positive_int(
         _option(tokens, ("--batch", "--batch-size", "batch", "batch-size"))
@@ -201,6 +202,8 @@ def _yolo_adapter(
     parameters: dict[str, Any] = {}
     if model:
         parameters["model"] = model
+    if data:
+        parameters["data"] = data
     if epochs:
         parameters["epochs"] = epochs
     if batch:
