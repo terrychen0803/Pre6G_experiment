@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/pre6g/runtime-prediction.schema.json",
+  "title": "Pre6G Runtime Prediction",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "model_id",
+    "device_id",
+    "detected_unit",
+    "predicted_runtime_ms",
+    "feature_count"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "pre6g.runtime-prediction/v1"
+    },
+    "model_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "device_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "detected_unit": {
+      "const": "execution_cycle"
+    },
+    "predicted_runtime_ms": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "feature_count": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "node": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "workload_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "detector_profile": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "detected_period_ms": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "detector_confidence": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "model_role": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "additionalProperties": true
+}
