@@ -356,3 +356,71 @@ Phase 05B PASS requires:
 - instrumented ground truth revealed only after detector output is frozen.
 
 The next implementation step is marker-free CUDA event extraction from the Nsight SQLite export.
+
+
+## Implemented deployment path
+
+The marker-free path is now implemented in the deployment repository.
+
+~~~text
+src/pre6g_experiment/marker_free.py
+  detector core
+  target process/context selection
+  yolo-v1 detector profile
+  optional NVTX audit helper
+
+scripts/extract_marker_free_trace.py
+  Nsight SQLite
+  -> marker-free event artifact
+
+scripts/evaluate_trace_event_periods.py
+  marker-free detector runner
+  -> horizons.csv
+  -> marker-free-discovery.json
+  -> detector-contract.json
+
+src/pre6g_experiment/runtime_features.py
+  target-filtered trace features
+  timestamps.json based pre-run telemetry window
+
+scripts/run_unified_trace_model.py
+  offline clean/high-load model-development reference runner
+~~~
+
+### Production corrections relative to the reference workspace
+
+The project implementation preserves the reference detector/model logic while changing four integration details:
+
+- NVTX_EVENTS is optional. Detection succeeds without the table.
+- Multiple CUDA globalPid/contextId groups fail closed unless a target is explicitly supplied.
+- The 20–2000 ms search range and supported 2x harmonic rule are explicitly labeled yolo-v1.
+- Pre-run telemetry is anchored by application_start_ns/profile_start_ns in timestamps.json rather than iterations.csv.
+
+### Example production-style detector invocation
+
+~~~bash
+PYTHONPATH=src python scripts/evaluate_trace_event_periods.py \
+  --sqlite /tmp/pre6g-c03-markerfree.sqlite \
+  --output-dir /tmp/pre6g-c03-period
+~~~
+
+If a trace contains more than one CUDA process/context pair:
+
+~~~bash
+PYTHONPATH=src python scripts/evaluate_trace_event_periods.py \
+  --sqlite profile.sqlite \
+  --output-dir period-output \
+  --global-pid <target-globalPid> \
+  --context-id <target-contextId>
+~~~
+
+NVTX audit is explicitly opt-in:
+
+~~~bash
+PYTHONPATH=src python scripts/evaluate_trace_event_periods.py \
+  --sqlite profile.sqlite \
+  --output-dir period-output \
+  --audit-nvtx
+~~~
+
+The detector result remains execution_cycle even when audit labels exist.
