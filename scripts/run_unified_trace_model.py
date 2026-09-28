@@ -283,35 +283,37 @@ def load_sample(row: dict[str, str], manifest_dir: Path) -> dict:
         row.get("timestamps_json"),
     )
 
-    if telemetry_path is not None or timestamps_path is not None:
-        if telemetry_path is None or timestamps_path is None:
-            raise ValueError(
-                "telemetry_csv and timestamps_json must be provided together"
-            )
-        summary = summarize_telemetry_window(
-            telemetry_path,
-            timestamps_path,
-            seconds=float(row.get("pre_window_seconds") or 5.0),
-            columns=TELEMETRY_COLUMNS,
+    if telemetry_path is None or timestamps_path is None:
+        raise ValueError(
+            "Every clean/high-load sample must provide telemetry_csv and "
+            "timestamps_json. The deployment reference does not use "
+            "missing-telemetry condition identity as a model signal."
         )
-        telemetry_sample_count = int(summary["sample_count"])
-        telemetry_values = []
-        for column in TELEMETRY_COLUMNS:
-            key = (
-                "pre_"
-                + column.lower()
-                .replace("%", "pct")
-                .replace(" ", "_")
-                .replace("(", "")
-                .replace(")", "")
-                .replace("/", "_")
-            )
-            value = summary["features"].get(key)
-            telemetry_values.append(
-                float(value)
-                if value is not None
-                else math.nan
-            )
+
+    summary = summarize_telemetry_window(
+        telemetry_path,
+        timestamps_path,
+        seconds=float(row.get("pre_window_seconds") or 5.0),
+        columns=TELEMETRY_COLUMNS,
+    )
+    telemetry_sample_count = int(summary["sample_count"])
+    telemetry_values = []
+    for column in TELEMETRY_COLUMNS:
+        key = (
+            "pre_"
+            + column.lower()
+            .replace("%", "pct")
+            .replace(" ", "_")
+            .replace("(", "")
+            .replace(")", "")
+            .replace("/", "_")
+        )
+        value = summary["features"].get(key)
+        telemetry_values.append(
+            float(value)
+            if value is not None
+            else math.nan
+        )
 
     condition = str(row["condition"])
     target_runtime_ms = float(row["target_runtime_ms"])
@@ -823,7 +825,7 @@ def main() -> None:
         help=(
             "CSV columns: condition,workload_id,device_id,sqlite_path,"
             "detection_json,target_runtime_ms,trace_runtime_ms(optional),"
-            "timestamps_json(optional),telemetry_csv(optional),"
+            "timestamps_json,telemetry_csv,"
             "baseline_repeat_cv_percent(optional)"
         ),
     )
@@ -963,6 +965,10 @@ def main() -> None:
         "pre_run_telemetry_anchor": (
             "timestamps.json application_start_ns, "
             "fallback profile_start_ns"
+        ),
+        "telemetry_collection_policy": (
+            "required for every clean/high-load sample; no condition-specific "
+            "missing-telemetry shortcut"
         ),
         "forbidden_features": [
             "NVTX",
