@@ -392,3 +392,113 @@ The source is timestamps.json plus canonical aligned Netdata/DCGM telemetry. ite
 All clean/high-load samples are required to provide telemetry in this deployment-oriented runner. This avoids reproducing the historical missing-telemetry/condition-identity confound.
 
 The runner remains an offline model-development/reference evaluator. A future production runtime adapter must load a frozen model/scaler/feature-schema bundle and perform single-request inference rather than retraining inside the scheduling path.
+
+
+## Frozen runtime model versus model-development runner
+
+Two runtime paths now coexist and must not be confused.
+
+Model-development / offline evaluation:
+
+~~~text
+scripts/run_unified_trace_model.py
+~~~
+
+This runner may fit models, perform grouped validation, and compare model variants. It is not called by the production scheduler.
+
+Control-side deployment inference:
+
+~~~text
+scripts/predict_runtime.py
+src/pre6g_experiment/runtime_model.py
+models/runtime/<frozen-model>.json
+~~~
+
+The production inference path:
+
+~~~text
+runtime-features.json
+  -> model/schema binding
+  -> frozen standardization
+  -> frozen coefficients
+  -> predicted_runtime_ms
+~~~
+
+It does not:
+
+~~~text
+select alpha
+fit Ridge
+run cross-validation
+read C01-C24 model-development samples
+read iterations.csv
+use NVTX
+~~~
+
+## Current frozen deployment-smoke bundle
+
+~~~text
+models/runtime/RTX5090_yolo_trace_only_v1.json
+~~~
+
+Binding:
+
+~~~text
+device_id        RTX5090
+workload_family  YOLO26 validation family
+detector_profile yolo-v1
+detected_unit    execution_cycle
+model_type       ridge_log_runtime
+alpha            0.1
+role             deployment-smoke
+~~~
+
+The final alpha is frozen from the prior model-development evidence. Deployment inference never re-selects it.
+
+The bundle stores:
+
+~~~text
+feature_names
+feature means
+feature scales
+intercept
+coefficients
+target semantics
+training provenance
+binding limitations
+~~~
+
+C03 component smoke:
+
+~~~text
+predicted_runtime_ms = 109.251714
+reference_runtime_ms = 118.080153
+smoke APE            = 7.48%
+~~~
+
+This 7.48% value is only a deployment smoke comparison because C03 is represented in the final-fit dataset. Held-out/generalization evidence remains the separate Pre6G_result grouped evaluation.
+
+## Model routing rule
+
+A frozen runtime model may be used only when its binding matches the candidate result.
+
+At minimum:
+
+~~~text
+device_id
+detected_unit
+detector_profile
+required feature names
+model schema version
+~~~
+
+Mismatch means reject prediction; never silently reuse the RTX5090 model on RTX4090.
+
+The long-term registry should resolve:
+
+~~~text
+(candidate node/device, workload/model family, detector profile)
+  -> frozen runtime model bundle
+~~~
+
+Unknown or unmatched candidates remain profile-only until a valid bundle exists.
