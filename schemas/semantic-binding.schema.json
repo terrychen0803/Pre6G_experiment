@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pre6g.example/schemas/semantic-binding.schema.json",
+  "title": "Pre6G Semantic Binding v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "status",
+    "workload_family",
+    "adapter",
+    "detector_profile",
+    "detected_unit",
+    "work_unit",
+    "cycles_per_work_unit",
+    "source"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "pre6g.semantic-binding/v1"
+    },
+    "status": {
+      "const": "bound"
+    },
+    "workload_family": {
+      "type": "string"
+    },
+    "adapter": {
+      "type": "string"
+    },
+    "detector_profile": {
+      "type": "string"
+    },
+    "detected_unit": {
+      "const": "execution_cycle"
+    },
+    "work_unit": {
+      "type": "string",
+      "minLength": 1
+    },
+    "cycles_per_work_unit": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "source": {
+      "type": "string",
+      "minLength": 1
+    },
+    "limitations": {
+      "type": "array",
+      "items": {"type": "string"}
+    }
+  },
+  "additionalProperties": true
+}
