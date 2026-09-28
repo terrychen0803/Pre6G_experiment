@@ -82,6 +82,43 @@ candidate work_unit = training_iteration
 
 這是 static semantic estimate，不是 marker-free detector output。
 
+### Automatic mounted-dataset work discovery
+
+既有 workload-family adapter 保持 semantic source of truth；新的 work-discovery layer 只補足 total work，不重新定義 workload family。
+
+~~~text
+original Job argv/config
+      |
+      v
+work.py / registered adapter
+      |
+      +--> workload_family
+      +--> parameters
+      +--> candidate work_unit
+      |
+      v
+work_discovery.py
+      |
+      +--> application-visible dataset YAML/path
+      +--> mounted dataset cardinality
+      |
+      v
+total_work_units
+~~~
+
+YOLO current path：
+
+~~~text
+epochs          <- original argv/config
+batch           <- original argv/config
+data path       <- original argv/config
+training samples<- mounted dataset
+steps/epoch     = ceil(samples / batch)
+total units     = epochs * steps/epoch
+~~~
+
+因此不需要使用者提供 training-step timestamp、batch boundary 或 iteration marker。若 dataset/config 無法可信解析，total work 保持 unknown，平台 fail closed。
+
 ### 3. Unknown
 
 若無法取得可信 static semantics：
@@ -265,6 +302,34 @@ T_steady ≈ predicted_runtime_per_work_unit × total_work_units
 - 可以報 relative slowdown；
 - 可以做 OOD / stability evaluation；
 - 預設不建立 total-job energy placement。
+
+Current implementation：
+
+~~~text
+src/pre6g_experiment/work_discovery.py
+src/pre6g_experiment/semantic_binding.py
+src/pre6g_experiment/runtime_aggregation.py
+
+scripts/discover_work.py
+scripts/aggregate_runtime.py
+~~~
+
+Current schemas：
+
+~~~text
+schemas/work-discovery.schema.json
+schemas/semantic-binding.schema.json
+schemas/semantic-runtime.schema.json
+~~~
+
+`runtime_aggregation.py` 目前只輸出 steady-work runtime。它刻意保留：
+
+~~~text
+predicted_total_job_runtime_s = null
+total_job_runtime_status = pending-non-steady-overhead-model
+~~~
+
+直到 startup / warmup / validation / checkpoint / finalization 的 non-steady overhead 有獨立、可驗證的 model/contract，避免把 steady-state extrapolation 誤標成 whole-job runtime。
 
 ## Total energy
 
