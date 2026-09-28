@@ -228,18 +228,33 @@ Monitoring baseline：
 - control-plane、RTX4090、RTX5090 NTP synchronized。
 - RTX5090 alignment validation：20/20 samples aligned，coverage 100%，median absolute delta 284.8 ms，max delta 490.5 ms。
 
-Marker-free RTX5090 C03 preflight：
+Marker-free RTX5090 C03 integration validation：
 
 ~~~text
 CUPTI_ACTIVITY_KIND_KERNEL present
 StringIds present
 kernel_count = 653976
 kernel-start span = 17.980515013 s
-single dominant CUDA process/context
-usable fields = start/end/shortName/globalPid/deviceId/contextId/streamId
+single CUDA process/context
+detected execution_cycle = 129.988614 ms
+detector confidence = 0.83999
+same-window NVTX audit oracle = 132.1907935 ms
+same-window detector APE = 1.67%
 ~~~
 
-這只代表 trace 可進入 marker-free extraction，不代表 period detector 已驗證成功。
+NVTX 僅在 detector output freeze 後作 audit，不是 production detector input。
+
+Runtime inference smoke：
+
+~~~text
+worker-side trace feature extraction PASS
+frozen model = RTX5090_yolo_trace_only_v1
+control-side predicted runtime = 109.251714 ms
+C03 unprofiled smoke reference = 118.080153 ms
+smoke comparison APE = 7.48%
+~~~
+
+7.48% 只代表 deployment smoke；C03 存在於 final-fit dataset，不能當 held-out 泛化指標。
 
 ## CLI
 
@@ -294,10 +309,11 @@ python scripts/align_telemetry.py --help
 
 目前尚未包含：
 
-- production marker-free period detector implementation；
-- production runtime model bundle；
+- arbitrary-workload production runtime model；
+- RTX4090 frozen runtime model；
 - real RTX4090/RTX5090 power model binaries/scalers；
 - 完整 Kubernetes controller reconcile loop；
+- 已固定的 shared artifact-store backend；
 - validated semantic-binding registry；
 - validated Top1/Top2 per-process GPU collector。
 
@@ -356,3 +372,61 @@ Reference implementation results imported from Pre6G_result are documented in:
 ~~~text
 docs/evidence/pre6g-result-runtime-reference.md
 ~~~
+
+
+## Control-side frozen runtime inference
+
+目前已加入第一個可直接載入的 deployment-smoke runtime model：
+
+~~~text
+models/runtime/RTX5090_yolo_trace_only_v1.json
+~~~
+
+正式角色分工：
+
+~~~text
+GPU worker Profile Job
+  Nsight / marker-free detector / runtime feature extraction
+        ↓
+  runtime-features.json
+        ↓
+shared artifact store
+        ↓
+k3s control side
+  frozen runtime model inference
+        ↓
+  runtime-prediction.json
+~~~
+
+Worker-side feature artifact：
+
+~~~bash
+PYTHONPATH=src python scripts/build_runtime_features.py \
+  --sqlite profile.sqlite \
+  --detection-json marker-free-discovery.json \
+  --output runtime-features.json \
+  --node "$NODE_NAME" \
+  --device-id RTX5090
+~~~
+
+Control-side inference：
+
+~~~bash
+PYTHONPATH=src python scripts/predict_runtime.py \
+  --model models/runtime/RTX5090_yolo_trace_only_v1.json \
+  --features runtime-features.json \
+  --output runtime-prediction.json
+~~~
+
+`predict_runtime.py` 只做 frozen inference，不重新 fit、不重新選 alpha。
+
+Profile Job → Controller 的正式 handoff contract：
+
+~~~text
+docs/profile-result-contract.md
+schemas/profile-result.schema.json
+schemas/runtime-features.schema.json
+schemas/runtime-prediction.schema.json
+~~~
+
+人工 `scp` 僅用於目前 component smoke test，不屬於正式 k3s controller workflow。
