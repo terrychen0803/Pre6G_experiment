@@ -101,9 +101,28 @@ Preferred production transport:
 shared-artifact-store
 ~~~
 
-Examples include a RWX PVC, NFS-backed artifact path, MinIO, or S3-compatible object storage.
+The repository-level transport abstraction remains backend-independent and can be implemented by a RWX PVC, NFS-backed artifact path, MinIO, or S3-compatible object storage.
 
-The repository does not currently hard-code one storage backend because the cluster storage contract has not yet been frozen.
+For the current k3s RTX4090/RTX5090 deployment, the storage backend is now frozen as:
+
+~~~text
+control-plane NFS export
+  /srv/pre6g-artifacts
+        |
+        v
+static PV
+  pre6g-artifacts-nfs
+  ReadWriteMany
+  Retain
+        |
+        v
+PVC
+  experiments/pre6g-artifacts
+  100Gi
+  ReadWriteMany
+~~~
+
+This backend has passed RTX5090 write, RTX4090 cross-node read/write, and control-side readback smoke validation. The generic schema/transport contract is still `shared-artifact-store`; NFS is the current cluster implementation rather than a universal platform requirement.
 
 Formal path template:
 
@@ -180,3 +199,57 @@ semantic binding passed for semantic total-runtime use
 ~~~
 
 The future controller reconcile loop should wait for one ProfileResult per candidate node, run the corresponding frozen model on the control side, then continue to power prediction and ranking.
+
+## Validated RTX5090 Kubernetes handoff smoke
+
+2026-09-28, task:
+
+~~~text
+yolo26-e2e-5090-smoke-002
+~~~
+
+completed the worker-side path on `mirc516-20250605`:
+
+~~~text
+YOLO26 workload
+  -> Nsight Systems 2026
+  -> worker-local profile.nsys-rep
+  -> worker-local profile.sqlite
+  -> marker-free yolo-v1 detector
+  -> runtime-features.json
+  -> profile-result.json
+  -> experiments/pre6g-artifacts RWX PVC
+  -> control-side visible artifact
+~~~
+
+Observed detector/result contract:
+
+~~~text
+Job                            Complete (1/1)
+detected_unit                  execution_cycle
+detected_period_ms             126.8548825
+confidence                     0.7304067523
+complete_cycles                118
+two-window stability           PASS
+profile-result status          ready-for-control-side-inference
+uses iterations.csv            false
+uses NVTX                      false
+manual SCP                     false
+~~~
+
+Large artifacts remained worker-local:
+
+~~~text
+profile.nsys-rep  35 MB
+profile.sqlite    104 MB
+~~~
+
+Shared handoff contained only:
+
+~~~text
+marker-free-discovery.json
+runtime-features.json
+profile-result.json
+~~~
+
+Control-side frozen runtime inference on this newly produced Kubernetes artifact is the next gate and is not claimed complete by this smoke.
