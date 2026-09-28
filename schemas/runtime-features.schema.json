@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/pre6g/runtime-features.schema.json",
+  "title": "Pre6G Runtime Features",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "node",
+    "device_id",
+    "detected_unit",
+    "detector_profile",
+    "detected_period_ms",
+    "detector_confidence",
+    "feature_names",
+    "feature_vector",
+    "trace_features",
+    "production_input_policy"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "pre6g.runtime-features/v1"
+    },
+    "node": {
+      "type": "string",
+      "minLength": 1
+    },
+    "device_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "workload_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "detected_unit": {
+      "const": "execution_cycle"
+    },
+    "detector_profile": {
+      "type": "string",
+      "minLength": 1
+    },
+    "detected_period_ms": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "detector_confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "target_global_pid": {
+      "type": "integer"
+    },
+    "target_context_id": {
+      "type": "integer"
+    },
+    "feature_names": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1
+    },
+    "feature_vector": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 1
+    },
+    "trace_features": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "number"
+      }
+    },
+    "trace_summary": {
+      "type": "object"
+    },
+    "production_input_policy": {
+      "type": "object",
+      "required": [
+        "uses_iterations_csv",
+        "uses_nvtx"
+      ],
+      "properties": {
+        "uses_iterations_csv": {
+          "const": false
+        },
+        "uses_nvtx": {
+          "const": false
+        },
+        "uses_callbacks": {
+          "const": false
+        },
+        "uses_epoch_labels": {
+          "const": false
+        },
+        "uses_batch_labels": {
+          "const": false
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}
