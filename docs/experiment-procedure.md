@@ -652,7 +652,7 @@ Phase 05C marker-free trace preflight on RTX5090 C03
 目前進行：
 
 ~~~text
-Phase 05C marker-free CUDA event extraction
+Phase 05C deployment detector integration validation
 ~~~
 
-下一步先從 Nsight SQLite 建立不含任何 iteration/NVTX label 的 target-process event sequence。
+目前 marker-free event extraction 已以 RTX5090 C03 完成一次手動驗證，且相同邏輯已正式落到 scripts/extract_marker_free_trace.py。下一步使用 scripts/evaluate_trace_event_periods.py 對既有 C03 SQLite 執行 yolo-v1 detector，確認 production-style output 與 reference path 對齊，之後再進 RTX4090/RTX5090 Kubernetes short-profile validation。
