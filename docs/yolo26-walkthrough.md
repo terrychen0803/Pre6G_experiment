@@ -1,6 +1,6 @@
 # YOLO26 integration fixture
 
-YOLO26 is the first workload used to exercise the generic Pre6G_experiment intake and profiling pipeline. It is not the platform schema and it must not introduce YOLO-specific assumptions into the controller core.
+YOLO26 is the first workload used to exercise the generic Pre6G_experiment intake and profiling pipeline. It is not the platform schema and it must not introduce YOLO-specific instrumentation requirements into the controller core.
 
 ## 1. Source Job
 
@@ -10,185 +10,302 @@ Example:
 examples/yolo26/user-job.yaml
 ~~~
 
-The platform reads two independent views.
-
-Execution contract:
+The platform reads two independent static views:
 
 ~~~text
-application container
-image
-command
-args
-resources
-volumes
+Execution Contract
+  application container
+  image
+  command
+  args
+  resources
+  volumes
+
+Static Semantic Contract
+  workload_family = vision-training
+  adapter = yolo
 ~~~
 
-Semantic discovery:
+The original argv remains the execution source of truth.
+
+## 2. Static semantic estimate
+
+Current example:
 
 ~~~text
-workload_family = vision-training
-adapter = yolo
+dataset_train_samples = 512
+epochs = 20
+batch = 16
 ~~~
 
-The original argv remains the source of truth for application execution.
-
-## 2. Inspect the Job
-
-~~~bash
-python -m pre6g_experiment inspect   --job examples/yolo26/user-job.yaml
-~~~
-
-Expected structure:
-
-~~~json
-{
-  "execution_contract": {
-    "application_container": "trainer",
-    "image": "...",
-    "command": ["python3"],
-    "args": ["train_yolo26.py", "..."]
-  },
-  "workload_spec": {
-    "workload_family": "vision-training",
-    "adapter": "yolo",
-    "profileable": true,
-    "parameters": {
-      "model": "yolo26n.yaml",
-      "epochs": 20,
-      "batch_size": 16,
-      "input_size": 640,
-      "dataset_train_samples": 512
-    },
-    "work": {
-      "status": "estimated",
-      "unit": "training_iteration",
-      "total_units": 640
-    }
-  }
-}
-~~~
-
-The 640-unit estimate is valid only under the declared assumptions:
+YOLO adapter estimate:
 
 ~~~text
 steps_per_epoch = ceil(512 / 16) = 32
-total_work_units = 20 * 32 = 640
+total_work_units = 20 × 32 = 640
+candidate work_unit = training_iteration
 ~~~
 
-Runtime discovery must later verify actual batch, dataloader length, world size, gradient accumulation, and sampler/drop-last behavior.
+This is a static semantic estimate. It does not prove that one recurring CUDA cycle equals one training iteration.
 
-## 3. Phase 05 scope
+## 3. Instrumented benchmark artifacts are validation-only
 
-Phase 05 does not attempt final runtime/energy prediction.
-
-The first acceptance test is:
+The existing yolo26_runtime_prediction project can generate:
 
 ~~~text
-generic Job inspection
-  -> canonical workload spec
-  -> immutable YOLO test image/config
-  -> short real execution on RTX4090
-  -> short real execution on RTX5090
+iterations.csv
+summary.json
+metadata.json
+NVTX TRAIN_ITER markers
+callback-derived timing
 ~~~
 
-PASS requires:
+These artifacts are useful for research validation, but they are not production inputs to Pre6G marker-free profiling.
 
-- same workload image/config on both nodes;
-- application starts;
-- dataset is accessible;
-- CUDA is available;
-- shared GPU resource works;
-- training enters real iteration execution;
-- requested and discovered workload semantics can be saved.
-
-Nsight 120-second capture is not part of Phase 05.
-
-## 4. Current YOLO fixture is not yet deployment-ready
-
-The example image is intentionally still a placeholder:
+Formal detector input must not depend on:
 
 ~~~text
-registry.example.edu/pre6g/yolo26-train@sha256:REPLACE_WITH_IMMUTABLE_DIGEST
+iterations.csv
+NVTX iteration labels
+Ultralytics callbacks
+epoch/batch IDs
+summary.json iteration mean
+source-code instrumentation
 ~~~
 
-The dataset PVC is also an example contract until the Phase 05 image/data distribution method is frozen.
-
-Before real Kubernetes execution, freeze:
-
-- x86_64 image;
-- Python / PyTorch / CUDA / Ultralytics versions;
-- training script revision;
-- dataset semantic hash;
-- workload configuration;
-- immutable image identity.
-
-The existing yolo26_runtime_prediction project is the reference workload implementation for this fixture, but Pre6G_experiment remains the formal platform repository.
-
-## 5. Phase 06 short Nsight compatibility
-
-After Phase 05 short execution passes, the controller/profile builder deep-copies the same application contract and wraps the original argv:
+Correct research workflow:
 
 ~~~text
-/opt/pre6g/nsight/bin/nsys profile
-  --trace=cuda,nvtx,osrt
-  --sample=none
-  --cpuctxsw=none
-  --output=<artifact-path>/profile
-  --
-  <original command> <original args>
+1. Hide instrumented ground truth.
+2. Run marker-free detector.
+3. Freeze detector output.
+4. Reveal instrumented ground truth.
+5. Compute error.
 ~~~
 
-Run a bounded 5-15 second test on RTX4090 and RTX5090.
+## 4. Current C03 hidden ground truth
 
-PASS requires:
-
-- same workload behavior as the non-profiled Phase 05 run;
-- profile.nsys-rep exists and is valid;
-- target CUDA kernels are visible;
-- Netdata and DCGM telemetry are available in the same time window;
-- timestamp alignment gate passes.
-
-## 6. Phase 07 formal 120-second dry-run
-
-Only after Phase 06 passes:
+For the current RTX5090 C03 validation fixture:
 
 ~~~text
-RTX4090 -> fixed 120 s target-process trace
-RTX5090 -> fixed 120 s target-process trace
+model = yolo26n.yaml
+batch = 16
+imgsz = 320
+amp = false
+max_iters = 128
+warmup_iters = 20
+
+observed:
+32 batches / epoch
+4 observed epochs
+128 recorded iterations
+steady-window valid iterations = 108
+steady-window mean iteration = 31.141946287 ms
+GPU-event mean = 27.943115252 ms
 ~~~
 
-The application must be able to continue long enough to cover the fixed capture window. The platform does not change the semantic identity of a work unit merely to extend the test duration; a longer bounded benchmark configuration can be introduced as a dedicated platform fixture while preserving model/batch/input/precision settings.
+These values must remain hidden from the marker-free detector.
 
-## 7. Runtime and energy semantics
+The steady-window mean iteration and GPU-event mean are different quantities. The marker-free detector should target recurring start-to-start cadence rather than simply summing kernel durations.
 
-Generic runtime output:
+## 5. Current marker-free trace preflight
+
+RTX5090 C03 trace:
+
+~~~text
+Nsight Systems = 2026.4.1.191-264138605071v0
+profile.nsys-rep successfully exported to SQLite
+CUPTI_ACTIVITY_KIND_KERNEL present
+StringIds present
+kernel_count = 653976
+kernel-start span = 17.980515013 s
+~~~
+
+Usable kernel columns:
+
+~~~text
+start
+end
+shortName
+globalPid
+deviceId
+contextId
+streamId
+~~~
+
+Current kernel table contains one dominant process/context group:
+
+~~~text
+globalPid = 327417436569600
+contextId = 1
+kernel_count = 653976
+~~~
+
+This is sufficient to proceed to marker-free event extraction.
+
+It does not yet prove that the correct training-iteration cadence can be recovered.
+
+## 6. Marker-free extraction target
+
+The next artifact should be:
+
+~~~text
+marker-free-events.csv
+~~~
+
+Fields:
+
+~~~text
+start_ns
+end_ns
+duration_ns
+short_name_id
+global_pid
+context_id
+stream_id
+relative_start_ns
+inter_arrival_ns
+~~~
+
+Do not include:
+
+~~~text
+iteration_id
+epoch
+batch_in_epoch
+NVTX label
+callback-derived label
+instrumented ground truth
+~~~
+
+## 7. Detector output
+
+The detector should first report:
 
 ~~~json
 {
-  "runtime": {
-    "status": "ready",
-    "work_unit": "training_iteration",
-    "predicted_runtime_ms_per_work_unit": 42.1
+  "detected_unit": "execution_cycle",
+  "period_ms": "...",
+  "confidence": "...",
+  "complete_cycles": "...",
+  "target_process_identified": true,
+  "stability": {
+    "two_window_pass": true
   }
 }
 ~~~
 
-The workload spec and runtime result must use the same work_unit before total runtime is calculated.
-
-For this fixture:
+It must not directly output:
 
 ~~~text
-T_total ~= runtime_per_training_iteration * total_training_iterations
+detected_unit = training_iteration
 ~~~
 
-The real RTX4090/RTX5090 power-model bundles are not yet available, so the current platform remains profile-only for real energy ranking.
+just because this test application is YOLO training.
 
-## 8. Synthetic decision-path test
+## 8. Semantic binding
 
-Synthetic node results can still exercise the post-model control path:
+After marker-free period detection:
+
+~~~text
+execution_cycle
+      ↓
+semantic binding
+      ↓
+training_iteration ?
+~~~
+
+Binding must be explicit.
+
+If validated:
+
+~~~text
+status = bound
+cycles_per_work_unit = 1
+work_unit = training_iteration
+~~~
+
+then total runtime extrapolation can use the static total work estimate.
+
+If not validated:
+
+~~~text
+status = unbound
+detected_unit = execution_cycle
+~~~
+
+the platform can still report cycle latency / slowdown, but not a trusted total training runtime.
+
+## 9. Phase 05 status
+
+Completed:
+
+~~~text
+Generic Job inspection PASS
+YOLO static adapter PASS
+Unknown workload remains profileable PASS
+Explicit non-YOLO work-unit metadata PASS
+C03 marker-free trace schema preflight PASS
+target process/context isolation preflight PASS
+~~~
+
+Current next step:
+
+~~~text
+Nsight SQLite
+  → marker-free event extraction
+  → recurring-pattern detection
+  → execution_cycle period
+  → freeze prediction
+  → compare with hidden C03 ground truth
+~~~
+
+## 10. Phase 06 and Phase 07
+
+After marker-free detection works on existing trace data:
+
+### Phase 06
+
+Run the same production-style method on short 5–15 s Kubernetes profiles on both RTX4090 and RTX5090.
+
+No user-code instrumentation dependency is allowed.
+
+### Phase 07
+
+Only then run formal fixed 120 s profiles on both candidate nodes.
+
+## 11. Runtime and energy semantics
+
+Semantic-aware case:
+
+~~~text
+validated execution_cycle -> training_iteration binding
++
+total_work_units = 640
++
+runtime prediction per training_iteration
+        ↓
+predicted total runtime
+~~~
+
+Opaque/unbound case:
+
+~~~text
+execution_cycle period
++
+loading state
+        ↓
+cycle latency / slowdown only
+~~~
+
+The real RTX4090/RTX5090 power-model bundles are not yet available, so real energy ranking remains profile-only.
+
+## 12. Synthetic decision-path test
+
+Synthetic results remain useful only for post-model control-flow validation:
 
 ~~~bash
 python -m pre6g_experiment decide   --job examples/yolo26/user-job.yaml   --results examples/yolo26/synthetic-node-results.json   --output generated/yolo26-production-job.yaml   --allow-synthetic
 ~~~
 
-These values are not experimental results and must not be reported as measured model accuracy or energy savings.
+Synthetic values must not be reported as measured performance or energy results.
