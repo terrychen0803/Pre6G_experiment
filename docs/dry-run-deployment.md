@@ -434,7 +434,7 @@ transport abstraction：
 shared-artifact-store
 ~~~
 
-實際 backend 可為 RWX PVC / NFS / MinIO / S3-compatible store；目前 storage backend 尚未 freeze，因此本 repo 先固定資料契約，不硬編未驗證的 storage implementation。
+repository-level backend 仍可為 RWX PVC / NFS / MinIO / S3-compatible store。Current k3s deployment 已將實作固定為 control-plane NFS export + static RWX PV/PVC（`pre6g-artifacts-nfs` / `experiments/pre6g-artifacts`），並完成 RTX4090/RTX5090 cross-node read/write smoke。
 
 Controller 只需要讀小型 ProfileResult/runtime feature artifact，再在 control side 執行：
 
@@ -455,3 +455,59 @@ schemas/runtime-prediction.schema.json
 ~~~
 
 人工 `scp` 僅限 component bring-up/smoke，不得出現在正式 controller reconcile path。
+
+## 2026-09-28 RTX5090 Kubernetes E2E status
+
+Current integration task:
+
+~~~text
+yolo26-e2e-5090-smoke-002
+~~~
+
+validated the worker-side path:
+
+~~~text
+Kubernetes Job
+  -> RTX5090
+  -> Nsight Systems 2026.4.1
+  -> worker-local .nsys-rep / SQLite
+  -> yolo-v1 marker-free detector
+  -> runtime-features.json
+  -> profile-result.json
+  -> NFS-backed RWX PVC
+  -> control-side visible artifacts
+~~~
+
+Result:
+
+~~~text
+Job                             Complete (1/1)
+detected_unit                   execution_cycle
+detected_period_ms              126.8548825
+confidence                      0.7304067523
+complete_cycles                 118
+two-window stability            PASS
+runtime feature extraction      PASS
+ProfileResult packaging         PASS
+ProfileResult status            ready-for-control-side-inference
+manual SCP                      not used
+~~~
+
+The first tiny fixture failed closed before detection because the usable trace span was only 4.922 s, shorter than the detector minimum horizon. The detector was not modified; the integration workload was lengthened to provide sufficient execution cycles.
+
+Large trace artifacts remained worker-local:
+
+~~~text
+profile.nsys-rep  35 MB
+profile.sqlite    104 MB
+~~~
+
+Only the small JSON handoff artifacts were persisted to the RWX PVC.
+
+Detailed evidence:
+
+~~~text
+docs/evidence/rtx5090-k3s-profile-e2e.md
+~~~
+
+Next gate: run the frozen RTX5090 runtime model on this newly produced Kubernetes `runtime-features.json` from the control side, then repeat the equivalent worker path on RTX4090.
