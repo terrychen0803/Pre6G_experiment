@@ -314,3 +314,45 @@ python scripts/align_telemetry.py --help
 - node-bound power model 精確綁定 node + physical GPU UUID。
 - required feature 缺失不得 zero-fill。
 - artifacts 以 task_id/node/attempt 分區並保存 checksum 與 absolute time window。
+
+
+## Marker-free runtime implementation
+
+The current project implementation now includes the deployment-oriented versions of the marker-free detector and runtime-model preparation path:
+
+~~~text
+scripts/extract_marker_free_trace.py
+  Nsight SQLite
+  -> fail-closed target globalPid/contextId selection
+  -> marker-free-events.csv.gz
+  -> extraction summary
+
+scripts/evaluate_trace_event_periods.py
+  target-process CUDA events
+  -> YOLO-v1 recurring-period detector
+  -> execution_cycle period/confidence/stability
+  -> optional NVTX audit only
+
+scripts/run_unified_trace_model.py
+  offline clean/high-load model-development reference
+  -> trace features
+  -> timestamps.json anchored pre-run telemetry
+  -> grouped leave-one-workload-out evaluation
+~~~
+
+Core reusable modules:
+
+~~~text
+src/pre6g_experiment/marker_free.py
+src/pre6g_experiment/runtime_features.py
+~~~
+
+The current detector profile is explicitly named yolo-v1. Its 20–2000 ms search range and supported 2x harmonic correction are preserved from the validated YOLO reference path and are not treated as generic workload rules.
+
+Pre-run telemetry no longer uses iterations.csv to find a window boundary. The platform uses application_start_ns from timestamps.json, with profile_start_ns as the fallback, and reads canonical aligned Netdata/DCGM telemetry.
+
+Reference implementation results imported from Pre6G_result are documented in:
+
+~~~text
+docs/evidence/pre6g-result-runtime-reference.md
+~~~
