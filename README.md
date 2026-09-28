@@ -195,6 +195,7 @@ target_unit = W
 - [Marker-Free Workload Discovery](docs/marker-free-workload-discovery.md)
 - [模型與工作量處理](docs/model-and-work-estimation.md)
 - [Dry-run Profile Job 部署](docs/dry-run-deployment.md)
+- [Profile Result handoff](docs/profile-result-contract.md)
 - [Monitoring preflight / recovery SOP](docs/monitoring-preflight.md)
 - [Telemetry feature contract](docs/netdata-contract.md)
 - [Node-bound power model registry](docs/power-model-registry.md)
