@@ -19,7 +19,10 @@ User batch/v1 Job
   |      image / command / args / env / resources / volumes
   |
   +--> Static Semantic Discovery
-  |      explicit metadata / known argv / config / dataset metadata
+  |      workload-family adapter / known argv / config
+  |
+  +--> Automatic Work Discovery
+  |      mounted dataset / dataset manifest / total work amount
   |
   v
 candidate discovery
@@ -125,6 +128,8 @@ source
 | FAISS build | vector_insert |
 
 目前第一個 adapter 是 YOLO，但 adapter 只負責 static semantic translation，不改寫 application argv，也不提供 production iteration marker。
+
+`work_discovery.py` 不取代 workload-family adapter。它先呼叫既有 `estimate_work()`，只有在 total work 尚未解析時，才用 adapter 已解析出的 dataset path / epochs / batch 等資訊讀取原始 workload 已掛載的 dataset，補足 dataset cardinality 與 total work。
 
 ## Telemetry contract
 
@@ -276,7 +281,36 @@ ProfileResult status             ready-for-control-side-inference
 manual SCP                       not used
 ~~~
 
-正式 handoff 僅把小型 JSON artifacts 寫入 shared RWX PVC；大型 `.nsys-rep` / SQLite 留在 worker-local temporary storage。這次 smoke 尚未包含該新 Kubernetes artifact 的 control-side frozen runtime inference、RTX4090 等價 Profile Job、power prediction 或 automatic placement。
+正式 handoff 僅把小型 JSON artifacts 寫入 shared RWX PVC；大型 `.nsys-rep` / SQLite 留在 worker-local temporary storage。
+
+同一份 Kubernetes artifact 已完成 control-side frozen runtime inference：
+
+~~~text
+model                         RTX5090_yolo_trace_only_v1
+predicted runtime             115.6079292 ms / execution_cycle
+schema/device/unit/binding    PASS
+runtime-prediction.json       PASS
+~~~
+
+Automatic work-discovery smoke 也已在 Kubernetes Job 中完成：
+
+~~~text
+epochs source                 original Job argv
+batch source                  original Job argv
+dataset source                mounted dataset
+training samples              512
+steps per epoch               32
+total work units              128
+iterations.csv/NVTX/callback  not used
+~~~
+
+目前 validated YOLO binding registry 將 `yolo-v1 execution_cycle` 以 fail-closed policy 綁定至 `training_iteration`，`cycles_per_work_unit=1`。因此本次 steady-work runtime 為：
+
+~~~text
+115.6079292 ms × 128 = 14.79781494 s
+~~~
+
+這仍不是完整 whole-job runtime；startup / warmup / validation / checkpoint / finalization 尚未納入 non-steady overhead model。RTX4090 等價 Profile Job、power prediction 與 automatic placement 也尚未完成。
 
 ## CLI
 
@@ -322,6 +356,9 @@ python scripts/align_telemetry.py --help
 - marker-free production architecture。
 - canonical workload schema。
 - YOLO static semantic adapter prototype。
+- automatic mounted-dataset work discovery（不需要 iteration marker）。
+- fail-closed YOLO/yolo-v1 semantic binding registry。
+- per-execution-cycle → per-work-unit → steady total runtime aggregation。
 - Netdata + DCGM monitoring readiness/recovery。
 - timestamp alignment quality gate。
 - node-bound power-model registry contract。
@@ -337,7 +374,6 @@ python scripts/align_telemetry.py --help
 - RTX4090 frozen runtime model；
 - real RTX4090/RTX5090 power model binaries/scalers；
 - 完整 Kubernetes controller reconcile loop；
-- validated semantic-binding registry；
 - validated Top1/Top2 per-process GPU collector。
 
 ## 正確性原則
@@ -453,3 +489,43 @@ schemas/runtime-prediction.schema.json
 ~~~
 
 人工 `scp` 僅用於目前 component smoke test，不屬於正式 k3s controller workflow。
+
+## Automatic work discovery and semantic runtime
+
+這一層與既有 workload-family adapter 是串接關係，不是另一套互斥 adapter：
+
+~~~text
+original Job
+  -> work.py / workload-family adapter
+       workload family / argv semantics / candidate work unit
+  -> work_discovery.py
+       mounted dataset cardinality / total work
+  -> runtime-prediction.json
+  -> semantic_binding.py
+       fail-closed execution_cycle -> work_unit binding
+  -> runtime_aggregation.py
+       per-work-unit runtime / steady total runtime
+~~~
+
+CLI：
+
+~~~bash
+PYTHONPATH=src python scripts/discover_work.py \
+  --job source-job.yaml \
+  --output workload-discovery.json
+
+PYTHONPATH=src python scripts/aggregate_runtime.py \
+  --runtime-prediction runtime-prediction.json \
+  --work-discovery workload-discovery.json \
+  --output semantic-runtime.json
+~~~
+
+Current schemas：
+
+~~~text
+schemas/work-discovery.schema.json
+schemas/semantic-binding.schema.json
+schemas/semantic-runtime.schema.json
+~~~
+
+YOLO mounted-dataset discovery uses application-visible `data=...` plus original `epochs` / `batch`; it does not inspect iteration timestamps, NVTX, callbacks, or `iterations.csv`.
