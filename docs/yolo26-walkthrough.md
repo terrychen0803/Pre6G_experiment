@@ -309,3 +309,51 @@ python -m pre6g_experiment decide   --job examples/yolo26/user-job.yaml   --resu
 ~~~
 
 Synthetic values must not be reported as measured performance or energy results.
+
+
+## 13. Current executable marker-free path
+
+The current C03 validation trace can now be exercised with the repository scripts directly.
+
+Extract marker-free events:
+
+~~~bash
+PYTHONPATH=src python scripts/extract_marker_free_trace.py \
+  --sqlite /tmp/pre6g-c03-markerfree.sqlite \
+  --output /tmp/pre6g-c03-markerfree-events.csv.gz \
+  --summary-output /tmp/pre6g-c03-markerfree-extraction-summary.json
+~~~
+
+Run the preserved YOLO-v1 period detector:
+
+~~~bash
+PYTHONPATH=src python scripts/evaluate_trace_event_periods.py \
+  --sqlite /tmp/pre6g-c03-markerfree.sqlite \
+  --output-dir /tmp/pre6g-c03-period \
+  --detector-profile yolo-v1
+~~~
+
+Expected output artifacts:
+
+~~~text
+/tmp/pre6g-c03-period/
+  horizons.csv
+  marker-free-discovery.json
+  detector-contract.json
+~~~
+
+The production-style invocation does not use NVTX. If an offline audit is intentionally required after detection, add:
+
+~~~text
+--audit-nvtx
+~~~
+
+The current yolo-v1 detector intentionally preserves the reference 20–2000 ms range and supported 2x harmonic correction. These rules are treated as YOLO-validated policy, not generic workload semantics.
+
+Reference results from the existing Pre6G_result implementation are summarized in:
+
+~~~text
+docs/evidence/pre6g-result-runtime-reference.md
+~~~
+
+The next platform validation is to compare this deployment implementation against the existing C03 result path, then repeat the same marker-free contract on Kubernetes short profiles for RTX4090 and RTX5090.
