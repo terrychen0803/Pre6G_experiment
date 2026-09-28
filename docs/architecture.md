@@ -504,3 +504,84 @@ The platform version intentionally changes four integration rules:
 4. Pre-run telemetry is selected from absolute timestamps.json boundaries and canonical aligned Netdata/DCGM samples. iterations.csv is not used to locate the telemetry window.
 
 This keeps the detector/runtime-model logic aligned with the validated project results while making the execution path suitable for opaque Kubernetes workloads.
+
+
+## Control-side runtime inference boundary
+
+正式部署中，GPU worker 與 control side 的責任分界固定如下：
+
+~~~text
+RTX worker Profile Job
+  user dry-run
+  Nsight Systems 2026
+  target PID/context isolation
+  marker-free period detection
+  runtime trace feature extraction
+        ↓
+  runtime-features.json
+        ↓
+shared artifact store
+        ↓
+k3s control side
+  model binding
+  frozen runtime inference
+  quality / OOD gate
+  power inference
+  ranking
+  production Job creation
+~~~
+
+Worker 應盡量在本地把大型 Nsight trace 壓縮成小型 feature/result artifact；control side 不需要為每次 prediction 搬移完整 SQLite。
+
+目前正式 runtime inference entrypoint：
+
+~~~text
+scripts/predict_runtime.py
+src/pre6g_experiment/runtime_model.py
+~~~
+
+第一個 frozen deployment-smoke bundle：
+
+~~~text
+models/runtime/RTX5090_yolo_trace_only_v1.json
+~~~
+
+此 model 僅綁定：
+
+~~~text
+device_id = RTX5090
+detector_profile = yolo-v1
+detected_unit = execution_cycle
+workload_family = YOLO26 validation family
+role = deployment-smoke
+~~~
+
+因此 RTX4090 或其他 workload family 不可 fallback 使用此 model。
+
+Profile Job 與 Controller 之間的 artifact contract：
+
+~~~text
+docs/profile-result-contract.md
+schemas/profile-result.schema.json
+schemas/runtime-features.schema.json
+schemas/runtime-prediction.schema.json
+~~~
+
+人工 SCP 只用於 bring-up smoke，不是 production transport。正式 controller 應透過 shared artifact store 取得每個 candidate 的 ProfileResult。
+
+## RTX5090 C03 end-to-end component evidence
+
+目前已完成一筆 worker → control-side component smoke：
+
+~~~text
+marker-free detected period     129.988614 ms
+detector confidence             0.83999
+same-window NVTX oracle         132.1907935 ms
+same-window detector APE        1.67%
+
+control-side frozen prediction  109.251714 ms
+unprofiled C03 smoke reference  118.080153 ms
+smoke comparison APE            7.48%
+~~~
+
+7.48% 僅驗證 deployment data path 與 frozen inference 可執行；C03 存在於 final-fit dataset，因此不可把它當作新的 held-out model accuracy。
