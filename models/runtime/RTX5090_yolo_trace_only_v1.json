@@ -1,0 +1,80 @@
+{
+  "schema_version": "pre6g.runtime-model/v1",
+  "model_id": "RTX5090_yolo_trace_only_v1",
+  "model_type": "ridge_log_runtime",
+  "role": "deployment-smoke",
+  "device_id": "RTX5090",
+  "workload_family": "YOLO26",
+  "detector_profile": "yolo-v1",
+  "detected_unit": "execution_cycle",
+  "target": "unprofiled_runtime_ms_per_execution_unit",
+  "target_transform": "log",
+  "feature_names": [
+    "log_detected_period_ms",
+    "log_kernel_event_rate_hz",
+    "log_unique_kernel_count",
+    "log_median_kernel_duration_us",
+    "log_mean_kernel_duration_us",
+    "log_kernel_busy_fraction",
+    "anchor_robust_cv"
+  ],
+  "preprocessing": {
+    "type": "standardize",
+    "means": [
+      4.498317315264763,
+      10.495535956908366,
+      4.407166388462337,
+      -0.23699656656024012,
+      1.1832604966782208,
+      -2.1367141043776856,
+      0.10797636346433122
+    ],
+    "scales": [
+      0.6056021135812222,
+      0.5100380148979109,
+      0.14955589910157463,
+      0.10558109700041815,
+      0.6999756951776581,
+      0.7136362088039412,
+      0.10806979006959583
+    ]
+  },
+  "model": {
+    "alpha": 0.1,
+    "intercept": 4.327917228539297,
+    "coefficients": [
+      0.541131416786297,
+      -0.051679880822866356,
+      -0.017294918730226483,
+      0.032626487569909365,
+      0.05428859658757072,
+      0.016313626141740655,
+      0.059523394139000374
+    ]
+  },
+  "training": {
+    "samples": 48,
+    "workloads": 24,
+    "conditions": [
+      "clean",
+      "high_load_01"
+    ],
+    "alpha_policy": "fixed from prior grouped model-development evaluation",
+    "alpha_reference": "alpha=0.1 was selected in 18/24 mixed trace-only outer folds; deployment finalization does not retune at inference time",
+    "source_repository": "terrychen0803/Pre6G_result",
+    "source_file": "analysis/unified_trace_model/samples.csv",
+    "source_file_sha": "4c58454eae9e6761f320e857dcc29e3ce3743e29"
+  },
+  "validation_reference": {
+    "c03_smoke_predicted_runtime_ms": 109.25171448874927,
+    "c03_unprofiled_reference_ms": 118.08015254629629,
+    "c03_smoke_ape_percent": 7.476648587564797,
+    "note": "Smoke comparison only; C03 is represented in the final-fit dataset and this value is not a held-out generalization metric."
+  },
+  "limitations": [
+    "RTX5090 only",
+    "YOLO26 validation workload family",
+    "trace-only smoke model",
+    "not a generic cross-workload production model"
+  ]
+}
