@@ -70,7 +70,7 @@ source-code instrumentation
 - 不修改 user application；
 - 不依賴 instrumentation；
 - 驗證 marker-free cycle detection；
-- 驗證 Netdata/DCGM 同窗口資料。
+- 驗證 Netdata Parent historical window + DCGM active polling 的同窗口資料。
 
 ### Phase 07
 
