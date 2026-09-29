@@ -278,3 +278,82 @@ This indicates a power-model training-coverage mismatch for GPU memory in the
 current externally loaded RTX4090 condition. It is not a telemetry alignment
 failure. The model remains diagnostic only; a feature-by-feature range audit is
 required before composing a diagnostic gross steady-energy estimate.
+
+
+## Power-model feature provenance note
+
+A repository/provenance review was performed after the RTX4090 power smoke.
+
+The historical Netdata collector in
+`terrychen0803/yolo26_runtime_prediction_netdata` defines an 18-column
+monitoring schema:
+
+~~~text
+CPU User%
+CPU System%
+CPU IOWait%
+Load 1min
+Load 5min
+Load 15min
+Mem Used(MB)
+Mem Free(MB)
+CPU Temp(°C)
+GPU Util%
+GPU Mem Used(MB)
+GPU Temp(°C)
+GPU Power(W)
+Top1 CPU%
+Top2 CPU%
+Top3 CPU%
+Top1 GPU%
+Top2 GPU%
+~~~
+
+The same repository notes that `Top1 GPU%` and `Top2 GPU%` were placeholders
+and were emitted as NaN, so the 18 columns are a broader monitoring schema
+rather than evidence that all 18 were usable power-model inputs.
+
+The RTX4090 power bundle currently stored in this repository has a separate
+5-feature inference contract. Its supplied scaler lists:
+
+~~~text
+GPU Mem Used(MB)
+CPU User%
+GPU Power(W)
+GPU Temp(°C)
+CPU Temp(°C)
+~~~
+
+The retained `original-test.ipynb` reads its feature groups directly from that
+scaler. Git history shows `model.onnx`, `scaler.json`, and
+`original-test.ipynb` were added together in commit
+`376dd878f0a9101a7c019cbbc43d5310dc000707`; there is no repository history
+showing the RTX4090 bundle being changed from an 18-feature interface to the
+current 5-feature interface.
+
+Current evidence therefore supports only:
+
+~~~text
+historical monitoring schema        18 columns
+current RTX4090 power bundle input   5 features
+current RTX5090 power bundle input   7 features
+~~~
+
+The repository does not contain enough training provenance to determine whether
+the power models were feature-selected from the broader 18-column telemetry
+pool, or whether another 18-feature model version exists elsewhere. This issue
+is intentionally deferred; no model or inference code is changed here.
+
+The latest RTX4090 5-feature OOD audit is retained as diagnostic evidence:
+
+~~~text
+FEATURE                  TRAIN_MIN   TRAIN_MAX     OBS_MIN    OBS_MEAN     OBS_MAX  OOD_ROWS
+GPU Mem Used(MB)             0.000    7793.000   14372.000   16325.330   16433.000       109
+CPU User%                    0.000      54.400       6.327       9.489      10.602         0
+GPU Power(W)                 0.000     300.300     229.423     258.728     272.811         0
+GPU Temp(°C)                 0.000      66.000      56.000      61.018      63.000         0
+CPU Temp(°C)                 0.000      96.000      27.800      27.800      27.800         0
+~~~
+
+This audit applies only to the current 5-feature RTX4090 bundle and must not be
+interpreted as an audit of the historical 18-column monitoring schema.
