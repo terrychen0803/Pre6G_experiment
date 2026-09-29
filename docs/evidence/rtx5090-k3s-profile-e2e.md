@@ -632,3 +632,52 @@ production manifest status     not ready
 ~~~
 
 Power inference may proceed as an integration smoke from aligned Netdata/DCGM telemetry, but automatic runtime/energy placement must remain gated until those items are resolved.
+
+### Telemetry evidence and synchronization boundary
+
+Historical GitHub results confirm that telemetry has been exercised before, but the raw telemetry files are not stored in the shared artifact backend used by the current K3s Profile Job.
+
+Repository evidence:
+
+~~~text
+Pre6G_result/analysis/unified_trace_model/samples.csv
+  high_load_01 rows contain derived pre-run telemetry summaries
+  clean rows contain no equivalent raw telemetry-derived values
+
+Pre6G_experiment/docs/netdata-contract.md
+  records the 2026-09-27 Netdata/DCGM alignment validation:
+  coverage = 100%
+  median absolute delta = 284.8 ms
+  max delta = 490.5 ms
+~~~
+
+The current RTX4090/RTX5090 K3s runtime Profile Job evidence did not capture Netdata/DCGM telemetry in the same formal profile window. Therefore those runtime artifacts and the previous telemetry validation must not be treated as one synchronized experiment.
+
+The formal deployment flow must run telemetry collection concurrently with the short Nsight dry-run:
+
+~~~text
+pre-window
+   |
+   +--> Netdata already collecting continuously
+   +--> start DCGM polling
+   +--> record absolute UTC Unix-ns wrapper timestamps
+   |
+application/profile start
+   +--> Nsight target-process capture
+   +--> Netdata continues
+   +--> DCGM continues
+   |
+profile/application end
+   |
+post-window
+   +--> stop DCGM polling
+   +--> query Netdata for the same absolute time interval
+   |
+align Netdata <-> DCGM by timestamp
+   |
+crop/aggregate according to the frozen power-model contract
+   |
+power inference
+~~~
+
+Nsight CUDA-event timestamps may remain local to the Nsight report; they do not need to be numerically identical to Unix timestamps used by Netdata/DCGM. The wrapper provides the common wall-clock profile/application boundaries used to associate the telemetry window with the same dry-run.
