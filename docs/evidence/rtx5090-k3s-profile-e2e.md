@@ -797,3 +797,23 @@ model_role                deployment-smoke
 ~~~
 
 For the current synthetic YOLO training fixture (512 training images, batch 16, 4 epochs), static work discovery gives 128 training work units. Under the current YOLO-only semantic binding of one `execution_cycle` per training work unit, this corresponds to a predicted steady-state training runtime of approximately 13.0319 s. This is a steady-state aggregate only; it excludes startup, validation, checkpointing, teardown, and other non-steady whole-job overhead.
+
+### Netdata allmetrics filtering A/B latency test
+
+A live A/B test compared the RTX5090 Netdata Parent `allmetrics` endpoint with and without chart filtering. Filtering reduced the normal response latency and payload size substantially, but did not remove the intermittent approximately 5-second stall:
+
+~~~text
+FULL
+charts median      2648
+latency median     0.0310 s
+latency max        5.0326 s
+slow >2.0 s        1 / 15
+
+FILTERED
+charts median      142
+latency median     0.0084 s
+latency max        5.0125 s
+slow >2.0 s        1 / 15
+~~~
+
+The filtered response still contained the required charts (`system.cpu`, `system.ram`, 79 app CPU charts, and 24 temperature charts). This indicates that response payload size contributes to normal request latency but is not the primary cause of the recurring ~5 s sampling hole. The next diagnostic should compare the Parent path with the node-local Netdata child from a host-networked pod before changing the telemetry quality thresholds.
