@@ -1128,3 +1128,31 @@ must not yet be used for automatic energy ranking or treated as validated power
 prediction accuracy. The next validation step is to summarize every required
 feature against the bundle's recorded training range and quantify the OOD
 extent before deciding whether the model/data coverage must be extended.
+
+
+### RTX5090 formal power-feature OOD audit
+
+The seven required power-model inputs from the 120-row formal telemetry window
+were compared against the scaler's recorded training ranges:
+
+~~~text
+FEATURE             TRAIN_MIN   TRAIN_MAX    OBS_MIN   OBS_MEAN   OBS_MAX   OOD_ROWS
+Top2 CPU%               0.800     240.000     53.993    102.654   116.004          0
+Top1 CPU%               0.900    1595.000    197.973    209.759   338.009          0
+Top3 CPU%               0.400     240.000      3.002     36.739   100.007          0
+Mem Used(MB)         2506.000   54414.000  30014.600  33096.761 33407.720          0
+Mem Free(MB)          794.000  123746.000   1566.711   2684.751  6800.875          0
+CPU User%               0.000      51.300      7.724      9.962    13.905          0
+GPU Power(W)            0.000     414.480    283.902    399.903   454.784         46
+~~~
+
+Only `GPU Power(W)` is outside the recorded training range. 46/120 rows
+(38.33%) exceed 414.48 W; the observed maximum is 454.784 W, 40.304 W
+(+9.72%) above that upper bound. No clipping is applied. This indicates a
+power-model training-coverage/OOD issue for the current high-power RTX5090
+regime rather than a telemetry schema mismatch in the other six inputs.
+
+Automatic ranking remains disabled until the bundle's validation/OOD policy and
+idle-power baseline are resolved. The 120-second profiling-window energy is
+diagnostic only; scheduling energy must combine predicted workload runtime with
+a comparable predicted incremental power contract.
