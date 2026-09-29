@@ -376,6 +376,29 @@ python scripts/align_telemetry.py --help
 - 完整 Kubernetes controller reconcile loop；
 - validated Top1/Top2 per-process GPU collector。
 
+## Current MVP runtime target
+
+為了先跑通 multi-node prediction → power → ranking → production placement 的完整控制流程，current YOLO integration 暫時把：
+
+~~~text
+predicted_steady_runtime_s
+~~~
+
+作為目前的 **predicted training time**。它代表：
+
+~~~text
+predicted runtime per training_iteration
+× automatically discovered total_work_units
+~~~
+
+目前不把 startup / warmup / validation / checkpoint / finalization 納入此 MVP 指標，因此：
+
+~~~text
+predicted_total_job_runtime_s = null
+~~~
+
+會繼續保留。Whole-job non-steady overhead model 延後到完整流程跑通後再加入，避免把尚未驗證的 overhead 混入目前 runtime predictor。
+
 ## 正確性原則
 
 - User Job 的 image/command/args/env/resources/volumes 是 execution source of truth。
