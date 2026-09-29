@@ -244,3 +244,37 @@ natural-exit-aware application window. This is preferable to incorrectly using
 `profile_start + 120 s` after the target naturally exited, but it is not yet a
 formally persisted steady-state power boundary. The current representative
 power aggregation policy therefore remains a validation item.
+
+
+## RTX4090 natural-window power inference smoke
+
+The node-bound RTX4090 power bundle was executed against the 109-row
+natural-exit-aware aligned telemetry window.
+
+~~~text
+model_id                              pdu1-outlet1-20260416-20260612
+target_semantics                      node-total-power
+target_unit                           W
+alignment_pass                        true
+samples                               109
+mean_predicted_power_w                354.3757665791643
+time_weighted_mean_predicted_power_w  354.3231773345533
+min_predicted_power_w                 327.81719970703125
+max_predicted_power_w                 368.5635070800781
+observed_window_s                     107.999893565
+observed_window_energy_j              38266.865439744375
+status                                validation_required
+ranking_eligible                      false
+ood                                   true
+~~~
+
+The integration reported exactly 109 out-of-range feature values, one for each
+input row. Every emitted OOD message shown in the smoke result is for
+`GPU Mem Used(MB)`, whose recorded scaler range ends at 7793 MB while the
+formal loaded-condition samples are roughly 14.4--16.4 GiB. No clipping was
+applied.
+
+This indicates a power-model training-coverage mismatch for GPU memory in the
+current externally loaded RTX4090 condition. It is not a telemetry alignment
+failure. The model remains diagnostic only; a feature-by-feature range audit is
+required before composing a diagnostic gross steady-energy estimate.
