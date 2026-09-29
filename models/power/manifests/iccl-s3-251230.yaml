@@ -35,4 +35,4 @@ preprocessing:
 notes:
   - PDU1 Outlet1 is bound to the RTX 4090 node.
   - ACTUAL_POWER_W is measured by an external meter and represents node-total wall power, not NVIDIA GPU power.
-  - Keep status validation_required until idle power, held-out metrics, missing-value policy, and formal OOD policy are frozen.
+  - Keep status validation_required until held-out metrics, missing-value policy, and formal OOD policy are frozen.
