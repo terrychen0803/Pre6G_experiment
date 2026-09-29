@@ -51,11 +51,13 @@ identify idle power, sampling interval, train/validation split, test metrics,
 missing-value policy, or a formal out-of-distribution policy. The original
 notebook also refers to a sample-data JSON file that was not supplied.
 
-The names `PDU1_Outlet1` and `ACTUAL_POWER_W` strongly suggest outlet-level
-power, but this target interpretation must be confirmed by the model owner.
-Do not use the prediction for automatic cross-node ranking until the target is
-confirmed as compatible with `node-total-power`, the node/GPU binding is known,
-and held-out validation has passed.
+The model owner confirmed that `ACTUAL_POWER_W` is measured by an external
+power meter at PDU1 Outlet1 and represents whole-node wall power rather than
+NVIDIA GPU power. The target is therefore recorded as `node-total-power`.
+
+The bundle still remains `validation_required` because idle power, held-out
+validation metrics, missing-value policy, and a formal OOD policy are not yet
+frozen. These remaining gates must pass before automatic cross-node ranking.
 
 ## Artifact integrity
 
