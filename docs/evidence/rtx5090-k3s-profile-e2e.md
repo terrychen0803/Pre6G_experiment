@@ -1075,3 +1075,56 @@ configured duration and terminated the target through the expected
 exits before 120 seconds. The repository still needs an explicit persisted
 configured-capture/deadline contract so downstream power processing does not
 infer the window ad hoc from the wider outer Nsight command interval.
+
+
+### RTX5090 formal 120-second power inference smoke
+
+The node-bound RTX5090 ONNX power bundle was executed against the 120 aligned
+telemetry rows cropped to the configured formal capture window.
+
+Input/model binding:
+
+~~~text
+model_id                          pdu1-outlet7-rtx5090-20260416-20260612
+bound_node                        mirc516-20250605
+bound_gpu_uuid                    GPU-a4e6b1ee-8a31-991f-dc82-fdab833483c4
+target_semantics                  node-total-power
+target_unit                       W
+formal telemetry rows             120
+alignment quality                 PASS
+~~~
+
+The inference path completed, but the bundle remains fail-closed for automatic
+ranking:
+
+~~~text
+status                            validation_required
+ranking_eligible                  false
+ood                               true
+idle_power_w                      null
+mean_predicted_power_w            462.1193374633789
+time_weighted_mean_power_w        462.28196331549725
+min_predicted_power_w             407.21124267578125
+max_predicted_power_w             510.050048828125
+observed_window_s                 119.000201584
+observed_window_energy_j          55011.64682319146
+~~~
+
+The current OOD messages are caused by GPU Power(W) values above the recorded
+training maximum of 414.48 W; 46 formal-window rows triggered this range check,
+with observed examples reaching 454.784 W. Inference was intentionally run
+without `--reject-ood`, so these values were extrapolated rather than clipped.
+
+Current blockers remain:
+
+~~~text
+bundle manifest status is not ready
+node idle power is missing
+telemetry contains out-of-domain feature values
+~~~
+
+Therefore this result validates the power-inference integration path only. It
+must not yet be used for automatic energy ranking or treated as validated power
+prediction accuracy. The next validation step is to summarize every required
+feature against the bundle's recorded training range and quantify the OOD
+extent before deciding whether the model/data coverage must be extended.
