@@ -1287,3 +1287,37 @@ power-model binding and telemetry-quality gates still fail closed
 
 This confirms that the code, tests, and current energy semantics are aligned
 before composing the RTX5090 loaded-condition runtime and power predictions.
+
+
+### RTX5090 loaded-condition gross steady-energy composition
+
+The formal RTX5090 loaded-condition runtime and node-total-power predictions
+were composed using the current gross-energy scheduling objective:
+
+~~~text
+condition                               loaded_uncontrolled
+background_load_source                  external_non_k8s_gpu_workload
+predicted_steady_runtime_s              123.62185488578614
+predicted_node_total_power_w            462.28196331549725
+predicted_steady_gross_energy_j         57148.15378530471
+predicted_steady_gross_energy_kj        57.148153785304714
+predicted_steady_gross_energy_wh        15.874487162584643
+runtime_model_id                        RTX5090_yolo_trace_only_v1
+power_model_id                          pdu1-outlet7-rtx5090-20260416-20260612
+~~~
+
+The energy duration is the predicted steady workload runtime, not the
+120-second profiling observation window.
+
+This result remains diagnostic rather than ranking-eligible because the power
+bundle is still `validation_required` and the loaded-condition telemetry
+contains scaler-range OOD values:
+
+~~~text
+power_ood                               true
+ranking_eligible                        false
+validation_status                       diagnostic_extrapolation
+~~~
+
+Therefore this milestone validates the runtime/power energy-composition path,
+not the final automatic ranking claim.
