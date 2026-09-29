@@ -1263,3 +1263,27 @@ E_predicted_steady_gross
 Idle power is not subtracted for this primary objective. A future
 task-incremental-energy metric on a loaded node would require a separately
 measured or modeled background-only counterfactual.
+
+
+### Gross-energy contract regression test PASS
+
+After switching the primary scheduling objective from idle-subtracted incremental
+energy to gross node energy, the control-plane checkout at commit
+`5bbea99fe54d1815fc1e1536b14b9ac01294c75a` passed the complete repository
+unit-test suite:
+
+~~~text
+Ran 39 tests in 0.065s
+OK
+~~~
+
+The regression suite includes explicit coverage that:
+
+~~~text
+idle_power_w is not required for gross-energy ranking
+node-total power is multiplied by predicted runtime
+power-model binding and telemetry-quality gates still fail closed
+~~~
+
+This confirms that the code, tests, and current energy semantics are aligned
+before composing the RTX5090 loaded-condition runtime and power predictions.
