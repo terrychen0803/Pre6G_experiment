@@ -89,9 +89,15 @@ def parse_metric_text(text: str, gpu_uuid: str | None) -> tuple[dict[str, float]
     return values, identity
 
 
+def metrics_url(url: str) -> str:
+    base = url.rstrip("/")
+    return base if base.endswith("/metrics") else base + "/metrics"
+
+
 def fetch_text(url: str, timeout: float) -> tuple[str, int, int]:
+    endpoint = metrics_url(url)
     start_ns = time.time_ns()
-    with urllib.request.urlopen(url, timeout=timeout) as response:
+    with urllib.request.urlopen(endpoint, timeout=timeout) as response:
         body = response.read().decode("utf-8")
     end_ns = time.time_ns()
     return body, start_ns, end_ns
@@ -172,7 +178,7 @@ def collect(args: argparse.Namespace) -> dict[str, Any]:
     return {
         "schema_version": "pre6g.dcgm-collection/v1",
         "output": str(args.output),
-        "url": args.url,
+        "url": metrics_url(args.url),
         "node": args.node,
         "gpu_uuid": args.gpu_uuid,
         "configured_interval_ms": args.interval_ms,
