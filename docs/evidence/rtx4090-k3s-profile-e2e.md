@@ -79,3 +79,30 @@ This milestone validates the formal marker-free runtime-profile path for the
 loaded RTX4090 condition. Power/energy readiness is not claimed here; telemetry
 alignment quality and the node-bound power-model inference still need to be
 checked separately.
+
+
+## Frozen RTX4090 runtime-model inference
+
+The formal runtime features from the loaded RTX4090 profile were passed to the
+frozen device-bound deployment-smoke model:
+
+~~~text
+model_id                    RTX4090_yolo_trace_only_v1
+device_id                   RTX4090
+detected_unit               execution_cycle
+predicted_runtime_ms        63.320823290313726
+detected_period_ms          95.1193265
+detector_confidence         0.9148343451610317
+feature_count               7
+model_role                  deployment-smoke
+~~~
+
+The 95.1193265 ms detector period is an observed marker-free trace quantity.
+The 63.320823290313726 ms value is the frozen model prediction per
+`execution_cycle`; the detector period is not substituted for the prediction.
+
+The model was trained from historical clean RTX4090 traces, while this formal
+run was executed under an uncontrolled external GPU background load. Therefore
+this result is retained as deployment-smoke evidence rather than a held-out
+accuracy claim. Semantic work discovery and execution-cycle-to-work-unit binding
+must be applied before extrapolating a steady workload runtime.
