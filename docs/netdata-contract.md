@@ -106,7 +106,7 @@ Feature names used by the model must not depend on collector-specific naming.
 
 All experiment timestamps use UTC Unix nanoseconds.
 
-The wrapper should save:
+The wall-clock artifact defines these fields:
 
 ~~~
 pre_window_start_ns
@@ -119,9 +119,42 @@ application_end_ns
 post_window_end_ns
 ~~~
 
-Netdata continuously collects and is queried after the run with absolute after/before timestamps.
+The generic wrapper guarantees `pre_window_start_ns`, `profile_start_ns`, `profile_end_ns`, and `post_window_end_ns`. Application/steady boundaries remain null unless they can be recovered without modifying the user workload; they must not be invented from framework-specific callbacks.
 
-DCGM Exporter is not treated as the historical database for this workflow. scripts/collect_dcgm.py actively polls the selected exporter during the experiment and stores each sample.
+Netdata continuously collects on the worker and streams history to the Parent. The formal Profile Job does **not** poll `/api/v1/allmetrics` once per second during the workload.
+
+The formal sequence is:
+
+~~~text
+Netdata child/Parent continuous monitoring
+        |
+Profile Job records pre_window_start_ns
+        |
+DCGM active polling + Nsight/workload
+        |
+Profile Job records post_window_end_ns
+        |
+query Netdata Parent historical database
+  /host/<hostname>/api/v1/data
+  after=<absolute unix seconds>
+  before=<absolute unix seconds>
+        |
+canonical netdata.csv
+        |
+align with dcgm.csv
+~~~
+
+The implementation entrypoint is:
+
+~~~text
+scripts/query_netdata_window.py
+~~~
+
+It discovers the currently valid CPU-temperature and app-CPU charts once, then queries their historical `/api/v1/data` series for the recorded absolute window. Netdata database timestamps are preserved as the sample timestamps. HTTP request latency after the run therefore affects retrieval latency, not the historical sampling cadence.
+
+`scripts/collect_netdata.py` remains a diagnostic/legacy live-polling utility. It is not the production Profile Job source for Netdata telemetry.
+
+DCGM Exporter is not treated as the historical database for this workflow. `scripts/collect_dcgm.py` actively polls the selected exporter during the experiment and stores each sample.
 
 The DCGM sample timestamp is the midpoint between request start and response end:
 
