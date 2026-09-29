@@ -1181,3 +1181,47 @@ This result is not yet a whole-job runtime. It must first be combined with
 static total-work discovery and the validated YOLO/yolo-v1 semantic binding.
 The current model remains a deployment-smoke model rather than a held-out
 production-accuracy claim.
+
+
+### RTX5090 formal work discovery and steady-runtime aggregation
+
+The formal YOLO fixture was resolved from static workload semantics without
+iteration markers or callbacks:
+
+~~~text
+workload_family                    YOLO26
+adapter                            yolo
+epochs                             30
+batch_size                         16
+dataset_train_samples              512
+steps_per_epoch                    32
+total_work_units                   960
+work_unit                          training_iteration
+discovery_mode                     static-semantic-contract
+~~~
+
+Production-input policy remained marker/instrumentation free.
+
+The validated YOLO/yolo-v1 semantic binding resolved:
+
+~~~text
+execution_cycle -> training_iteration
+cycles_per_work_unit = 1.0
+~~~
+
+Combining that binding with the formal frozen-model runtime prediction produced:
+
+~~~text
+predicted_runtime_ms_per_execution_cycle   128.7727655060272
+predicted_runtime_ms_per_work_unit          128.7727655060272
+total_work_units                            960
+predicted_steady_runtime_s                  123.62185488578614
+predicted_total_job_runtime_s               null
+total_job_runtime_status                    pending-non-steady-overhead-model
+aggregation_scope                           steady-work-only
+~~~
+
+The 123.6219 s value is the predicted duration of the semantic steady-work
+portion of the complete 30-epoch workload. It is independent of the configured
+120-second profiling observation window and must not be interpreted as a
+measured 120-second capture duration or as whole-job runtime.
