@@ -148,3 +148,38 @@ The 60.78799 s value is the predicted semantic steady-work duration for the
 complete 30-epoch workload. It is not the measured profile duration and it does
 not include non-steady startup, validation, checkpointing, or teardown
 overheads.
+
+
+## RTX4090 historical Netdata replay and alignment PASS
+
+The initial formal Job used the lowercase Kubernetes node name in the Netdata
+Parent host route. Netdata registered this child as `ICCL-S3-251230`, and the
+per-host route is case-sensitive. The original query therefore returned HTTP
+404. The workload/profile trace did not need to be rerun.
+
+The original absolute telemetry window was replayed from the continuously
+collected Netdata Parent history using the corrected host route:
+
+~~~text
+Netdata parent host route          /host/ICCL-S3-251230
+after_ns                           1790700241687260922
+before_ns                          1790700389015322350
+Netdata samples                    148
+DCGM samples                       148
+aligned samples                    148
+alignment coverage                 1.0
+median alignment delta             276.158295 ms
+max alignment delta                276.449477 ms
+max Netdata gap                    1.0 s
+max DCGM gap                       1.000973357 s
+alignment pass                     true
+~~~
+
+This repairs the telemetry chain for the existing formal RTX4090 run without
+changing the runtime trace. The formal manifest was also corrected to use the
+case-preserving Netdata Parent hostname for future runs.
+
+Power-window cropping is intentionally deferred until the profiler termination
+path is confirmed: a configured 120-second deadline may be projected from
+`profile_start_ns` only when Nsight actually reached its configured duration,
+not when the workload naturally exited early.
