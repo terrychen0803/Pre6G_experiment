@@ -170,6 +170,9 @@ scripts/query_netdata_window.py
 
 The formal Profile Job does not poll Netdata `/allmetrics` every second. `scripts/collect_netdata.py` is retained only as a diagnostic/legacy live-polling utility.
 
+
+Formal Phase 07 profiling uses a configured **120-second Nsight capture window**. Shorter 5–15 s / fixture-driven runs documented in this repository are compatibility or integration smokes and must not be reported as the formal profiling result. Formal artifacts are emitted only after the capture terminates and the Nsight report is finalized, followed by SQLite export, marker-free detection, feature extraction, telemetry-window retrieval/alignment, and result packaging. If the original workload naturally exits before 120 s, the platform preserves the shorter actual capture rather than restarting or fabricating work; the normal trace-quality gates still apply.
+
 DCGM exporter-side collection interval：
 
 ~~~text
