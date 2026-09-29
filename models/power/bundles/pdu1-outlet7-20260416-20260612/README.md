@@ -48,12 +48,14 @@ python scripts/predict_power_from_aligned_telemetry.py \
 
 ## Validation status
 
-The node/GPU association is recorded, but this bundle remains
-`validation_required`. The filenames and Notebook target field indicate PDU
-outlet power; this still needs confirmation as the project's required
-`node-total-power` semantic. Idle power, held-out metrics, and a formal OOD
-policy were not supplied, so the bundle is not yet eligible for automatic
-energy ranking.
+The node/GPU association is recorded. The model owner confirmed that
+`ACTUAL_POWER_W` is measured by the external power meter and represents
+whole-node wall power rather than NVIDIA GPU power, so the target is recorded
+as `node-total-power`.
+
+The bundle remains `validation_required` because idle power, held-out
+validation metrics, missing-value policy, and a formal OOD policy are not yet
+frozen. It is therefore not yet eligible for automatic energy ranking.
 
 The original Notebook is retained for provenance. Its sample-data JSON was not
 supplied, several comments are encoding-damaged, and its plot title mistakenly
