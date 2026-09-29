@@ -45,6 +45,29 @@ class PowerAdapterTests(unittest.TestCase):
             },
         )
 
+    def test_feature_source_map_matches_rtx5090_bundle(self):
+        required = [
+            "Top2 CPU%",
+            "Top1 CPU%",
+            "Top3 CPU%",
+            "Mem Used(MB)",
+            "Mem Free(MB)",
+            "CPU User%",
+            "GPU Power(W)",
+        ]
+        self.assertEqual(
+            feature_source_map(required),
+            {
+                "Top2 CPU%": "netdata",
+                "Top1 CPU%": "netdata",
+                "Top3 CPU%": "netdata",
+                "Mem Used(MB)": "netdata",
+                "Mem Free(MB)": "netdata",
+                "CPU User%": "netdata",
+                "GPU Power(W)": "dcgm",
+            },
+        )
+
     def test_time_weighted_power_summary(self):
         rows = [
             {"timestamp_ns": 0, "PREDICTED_POWER_W": 100.0},
