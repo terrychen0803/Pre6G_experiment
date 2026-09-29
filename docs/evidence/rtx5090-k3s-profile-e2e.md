@@ -817,3 +817,32 @@ slow >2.0 s        1 / 15
 ~~~
 
 The filtered response still contained the required charts (`system.cpu`, `system.ram`, 79 app CPU charts, and 24 temperature charts). This indicates that response payload size contributes to normal request latency but is not the primary cause of the recurring ~5 s sampling hole. The next diagnostic should compare the Parent path with the node-local Netdata child from a host-networked pod before changing the telemetry quality thresholds.
+
+
+### Telemetry architecture correction: Netdata historical query
+
+The live RTX5090 runs exposed intermittent ~5 s latency in client-side `/allmetrics` polling. An A/B payload-size test reduced normal response latency but did not remove the ~5 s stall. This evidence is retained because it identified an implementation mismatch rather than a reason to relax the telemetry quality gate.
+
+The formal path is now aligned with the original telemetry contract:
+
+~~~text
+Netdata Child -> Parent
+  continuous 1 Hz monitoring/history
+        |
+Profile Job records absolute pre/profile/post boundaries
+        |
+Nsight + workload
+DCGM active polling during the run
+        |
+post_window_end_ns
+        |
+query_netdata_window.py
+  Parent historical /api/v1/data
+  [pre_window_start_ns, post_window_end_ns]
+        |
+historical netdata.csv + dcgm.csv
+        |
+align_telemetry.py
+~~~
+
+Therefore the earlier `max_netdata_gap_s ~= 3.5 s` results from live `/allmetrics` polling are not treated as evidence that the Netdata database itself had the same sampling gap. The new historical-query path must be validated on-cluster before power/ranking is marked ready. The runtime trace result remains valid independently.
