@@ -4,11 +4,24 @@ import argparse
 import csv
 import math
 import re
+import signal
 import time
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+
+_RUNNING = True
+
+
+def _stop(_signum, _frame) -> None:
+    global _RUNNING
+    _RUNNING = False
+
+
+signal.signal(signal.SIGTERM, _stop)
+signal.signal(signal.SIGINT, _stop)
 
 
 METRICS = {
@@ -90,8 +103,11 @@ def utc_iso(timestamp_ns: int) -> str:
 
 
 def collect(args: argparse.Namespace) -> dict[str, Any]:
+    global _RUNNING
+    _RUNNING = True
+
     interval_s = args.interval_ms / 1000.0
-    sample_count = max(1, math.ceil(args.duration_s / interval_s))
+    sample_count = 0
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
 
@@ -119,11 +135,17 @@ def collect(args: argparse.Namespace) -> dict[str, Any]:
         writer = csv.DictWriter(handle, fieldnames=columns)
         writer.writeheader()
 
-        for index in range(sample_count):
+        index = 0
+        while _RUNNING:
+            if args.duration_s > 0 and index * interval_s >= args.duration_s:
+                break
+
             target = monotonic_origin + index * interval_s
             delay = target - time.monotonic()
             if delay > 0:
                 time.sleep(delay)
+            if not _RUNNING:
+                break
 
             body, request_start_ns, request_end_ns = fetch_text(args.url, args.timeout_s)
             timestamp_ns = (request_start_ns + request_end_ns) // 2
@@ -144,6 +166,8 @@ def collect(args: argparse.Namespace) -> dict[str, Any]:
 
             first_timestamp_ns = first_timestamp_ns or timestamp_ns
             last_timestamp_ns = timestamp_ns
+            sample_count += 1
+            index += 1
 
     return {
         "schema_version": "pre6g.dcgm-collection/v1",
@@ -166,7 +190,12 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--url", required=True, help="DCGM /metrics endpoint")
     p.add_argument("--node", help="Expected Kubernetes node name")
     p.add_argument("--gpu-uuid", help="Expected GPU UUID; required on multi-GPU endpoints")
-    p.add_argument("--duration-s", type=float, default=120.0)
+    p.add_argument(
+        "--duration-s",
+        type=float,
+        default=120.0,
+        help="Seconds to collect; 0 means until SIGINT/SIGTERM.",
+    )
     p.add_argument("--interval-ms", type=int, default=1000)
     p.add_argument("--timeout-s", type=float, default=3.0)
     p.add_argument("--output", type=Path, required=True)
@@ -175,8 +204,8 @@ def parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = parser().parse_args()
-    if args.duration_s <= 0:
-        raise SystemExit("--duration-s must be positive")
+    if args.duration_s < 0:
+        raise SystemExit("--duration-s must be >= 0")
     if args.interval_ms <= 0:
         raise SystemExit("--interval-ms must be positive")
 
