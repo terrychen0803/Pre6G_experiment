@@ -601,16 +601,34 @@ scripts/predict_power_from_aligned_telemetry.py
         +--> power-prediction-smoke summary
 ~~~
 
-The adapter preserves the uploaded model's current `validation_required` status and does not make it ranking-eligible yet. Current blocking metadata are:
+Both uploaded power bundles are now node-bound and their `ACTUAL_POWER_W` targets are confirmed by the model owner as external-meter whole-node wall power:
 
 ~~~text
-Kubernetes node binding         missing
-physical GPU UUID binding       missing
-target semantics verification   missing
-node idle power                 missing
-production manifest status      not ready
+RTX4090
+  node        iccl-s3-251230
+  GPU UUID    GPU-39ace77c-cb0f-dd47-ae6b-12014c25b1d1
+  bundle      pdu1-outlet1-20260416-20260612
+  target      node-total-power
+  inputs      5 features
+
+RTX5090
+  node        mirc516-20250605
+  GPU UUID    GPU-a4e6b1ee-8a31-991f-dc82-fdab833483c4
+  bundle      pdu1-outlet7-20260416-20260612
+  target      node-total-power
+  inputs      7 features
 ~~~
 
-The bundle target field is `ACTUAL_POWER_W`; its current manifest only infers `pdu-outlet-power` from artifact provenance. Automatic runtime/energy ranking remains blocked until the model owner confirms the physical node/outlet mapping and that the target is comparable node-total wall power.
+The RTX5090 model consumes Netdata fields `Top1 CPU%`, `Top2 CPU%`, `Top3 CPU%`, `Mem Used(MB)`, `Mem Free(MB)`, `CPU User%` plus DCGM `GPU Power(W)`. The RTX4090 model consumes Netdata `CPU User%`, `CPU Temp(°C)` plus DCGM `GPU Mem Used(MB)`, `GPU Power(W)`, `GPU Temp(°C)`. The power adapter now routes all of these canonical features to the validated collector source.
 
-The power adapter deliberately does not multiply profiled-window power by predicted training time while these gates are unresolved.
+The adapter still preserves `validation_required` rather than making either model ranking-eligible. Remaining blockers are:
+
+~~~text
+node idle power                 missing
+held-out model metrics         not frozen in the manifest
+missing-value policy           not frozen
+formal OOD policy              not frozen
+production manifest status     not ready
+~~~
+
+Power inference may proceed as an integration smoke from aligned Netdata/DCGM telemetry, but automatic runtime/energy placement must remain gated until those items are resolved.
