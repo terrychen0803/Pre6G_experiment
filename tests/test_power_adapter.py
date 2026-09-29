@@ -81,6 +81,38 @@ class PowerAdapterTests(unittest.TestCase):
             result["time_weighted_mean_predicted_power_w"], 200.0
         )
 
+    def test_idle_power_is_optional_for_power_readiness(self):
+        manifest = {
+            "status": "ready",
+            "model_id": "demo",
+            "model_version": "1.0.0",
+            "model_format": "onnx",
+            "node_binding": {
+                "kubernetes_node": "worker-5090",
+                "gpu_uuid": "GPU-demo",
+                "gpu_model": "NVIDIA GeForce RTX 5090",
+            },
+            "target": {
+                "source_field": "ACTUAL_POWER_W",
+                "semantics": "node-total-power",
+                "semantics_verified": True,
+                "unit": "W",
+            },
+        }
+        result = build_power_smoke_result(
+            manifest=manifest,
+            required_features=["CPU User%", "GPU Power(W)"],
+            predicted_rows=[
+                {"timestamp_ns": 0, "PREDICTED_POWER_W": 400.0},
+                {"timestamp_ns": 1_000_000_000, "PREDICTED_POWER_W": 410.0},
+            ],
+            ood_messages=[],
+            alignment_quality={"pass": True},
+        )
+        self.assertEqual(result["status"], "ready")
+        self.assertTrue(result["ranking_eligible"])
+        self.assertIsNone(result["idle_power_w"])
+
     def test_unbound_bundle_is_not_ranking_eligible(self):
         manifest = {
             "status": "validation_required",
