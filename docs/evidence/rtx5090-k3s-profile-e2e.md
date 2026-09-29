@@ -435,4 +435,61 @@ automatic production Job placement
 formal fixed 120-second profiling
 ~~~
 
-The next runtime-specific integration gate is whole-job runtime composition; the next multi-node gate is the equivalent RTX4090 worker path.
+The RTX4090 equivalent worker path has now also completed. Whole-job non-steady composition remains deferred while the MVP treats steady training time as the runtime target.
+
+## RTX4090 equivalent Profile Job
+
+The same frozen worker implementation and workload fixture were replayed on node `iccl-s3-251230` with only the candidate-specific node/device binding changed.
+
+~~~text
+Job                               pre6g-profile-yolo26-4090-mvp-v2
+node                              iccl-s3-251230
+device_id                         RTX4090
+Kubernetes Job                    Complete (1/1)
+duration                          44 s
+workload                          YOLO26 synthetic
+train / val samples               512 / 64
+epochs / batch / imgsz            4 / 16 / 320
+worker implementation commit       be379cb840826b772e6eb7eab1af6b41429fd969
+shared PVC                        pre6g-artifacts
+~~~
+
+Marker-free detector output:
+
+~~~text
+accepted                           true
+detected_unit                      execution_cycle
+detector_profile                   yolo-v1
+detected_period_ms                 95.05752175
+confidence                         0.9291919456
+complete_cycles                    94
+horizon_seconds                    9
+selection_reason                   two-window stability
+previous_horizon_seconds           7
+previous_period_ms                 93.839766
+harmonic_corrected                 false
+target_context_id                  1
+~~~
+
+Production input policy remained marker-free:
+
+~~~text
+uses_iterations_csv                false
+uses_nvtx                          false
+uses_callbacks                     false
+uses_epoch_labels                  false
+uses_batch_labels                  false
+~~~
+
+The emitted ProfileResult is `ready-for-control-side-inference` and the shared artifact store contains:
+
+~~~text
+results/yolo26-e2e-5090-smoke-002/iccl-s3-251230/
+  marker-free-discovery.json
+  runtime-features.json
+  profile-result.json
+~~~
+
+The detector artifact reports `hardware_trace=false`. In the current implementation this flag only reflects whether a specific Nsight diagnostic string (`Hardware tracing used for CUDA tracing`) appears in `DIAGNOSTIC_EVENT`; it is not a required detector gate. The required CUDA kernel table, target process/context, stable recurring period, confidence, and complete-cycle gates all passed.
+
+The next multi-node runtime gate is a **device-matched RTX4090 frozen runtime model**. The existing RTX5090 bundle must not be reused on RTX4090.
