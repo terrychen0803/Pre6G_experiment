@@ -1119,7 +1119,6 @@ Current blockers remain:
 
 ~~~text
 bundle manifest status is not ready
-node idle power is missing
 telemetry contains out-of-domain feature values
 ~~~
 
@@ -1152,10 +1151,10 @@ Only `GPU Power(W)` is outside the recorded training range. 46/120 rows
 power-model training-coverage/OOD issue for the current high-power RTX5090
 regime rather than a telemetry schema mismatch in the other six inputs.
 
-Automatic ranking remains disabled until the bundle's validation/OOD policy and
-idle-power baseline are resolved. The 120-second profiling-window energy is
-diagnostic only; scheduling energy must combine predicted workload runtime with
-a comparable predicted incremental power contract.
+Automatic ranking remains disabled until the bundle's validation/OOD policy is
+resolved. The 120-second profiling-window energy is diagnostic only; scheduling
+energy must combine predicted workload runtime with the model's node-total-power
+prediction under the gross-energy objective.
 
 
 ### RTX5090 formal runtime inference
@@ -1225,3 +1224,42 @@ The 123.6219 s value is the predicted duration of the semantic steady-work
 portion of the complete 30-epoch workload. It is independent of the configured
 120-second profiling observation window and must not be interpreted as a
 measured 120-second capture duration or as whole-job runtime.
+
+
+### Formal-run load condition clarification
+
+The operator confirmed that the RTX5090 node had an external, non-Kubernetes
+GPU workload running continuously throughout the entire formal
+`yolo26-formal-5090-120s-002` profiling interval. Therefore this run is
+classified as:
+
+~~~text
+condition                         loaded_uncontrolled
+background_load_source            external_non_k8s_gpu_workload
+background_load_overlap           full formal profiling interval
+~~~
+
+This classification is important when interpreting the power-model range audit.
+The 46/120 `GPU Power(W)` samples above the scaler's recorded 414.48 W upper
+bound are retained as valid observed telemetry for this loaded condition; they
+are not clipped or relabeled as collection failures.
+
+The 414.48 W boundary comes from the original supplied scaler artifact
+(`x_min=0`, `x_data_range=414.48`). The rule that flags values outside the
+recorded scaler range as OOD was added by the Pre6G integration layer as a
+coverage diagnostic/fail-closed mechanism; the original bundle did not provide
+a formal OOD deployment policy. A future policy must distinguish modest
+extrapolation warnings from conditions that require rejection.
+
+The scheduling energy objective is also clarified: because the power target is
+externally measured whole-node wall power, the primary metric is gross node
+energy over predicted workload runtime:
+
+~~~text
+E_predicted_steady_gross
+  = P_predicted_node_steady × T_predicted_steady
+~~~
+
+Idle power is not subtracted for this primary objective. A future
+task-incremental-energy metric on a loaded node would require a separately
+measured or modeled background-only counterfactual.
