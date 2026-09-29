@@ -215,8 +215,9 @@ def collect(args: argparse.Namespace) -> dict[str, Any]:
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description=(
-            "Collect canonical CPU/system telemetry from a Netdata Agent or "
-            "Parent /host/<hostname> endpoint."
+            "Diagnostic live-polling collector for canonical Netdata CPU/system "
+            "telemetry. Formal Profile Jobs use query_netdata_window.py after "
+            "the run so Netdata remains continuously monitored by Agent/Parent."
         )
     )
     p.add_argument("--url", required=True)
