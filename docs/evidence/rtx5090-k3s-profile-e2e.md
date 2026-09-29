@@ -546,3 +546,71 @@ models/runtime/RTX4090_yolo_trace_only_v1.json
 ~~~
 
 This remains a `deployment-smoke` model. Its training set is historical clean-condition RTX4090 data and includes nine accepted detector fallback samples; current K3s features therefore require OOD/quality interpretation before any production-quality ranking claim.
+
+### Deferred RTX4090 high-load validation
+
+The current RTX4090 runtime bundle is trained from historical clean-condition traces only. This is sufficient for the current end-to-end deployment smoke, but it does **not** validate runtime prediction under background GPU/CPU/memory contention.
+
+Before claiming production-quality current-load placement on RTX4090, collect a paired high-load dataset using the same C01-C24 workload grid and current marker-free `yolo-v1` feature path, then evaluate at least:
+
+~~~text
+clean -> clean
+clean -> high-load
+mixed clean/high-load grouped LOOW
+high-load held-out workloads
+OOD behavior for current K3s Profile Job features
+~~~
+
+This work is intentionally deferred until the full runtime + power + placement workflow is integrated.
+
+## Uploaded power-model integration
+
+The uploaded bundle `models/power/bundles/pdu1-outlet1-20260416-20260612` is now wired to an aligned Netdata/DCGM inference smoke path.
+
+Its frozen scaler requires exactly five simultaneous features:
+
+~~~text
+Netdata:
+  CPU User%
+  CPU Temp(°C)
+
+DCGM:
+  GPU Mem Used(MB)
+  GPU Power(W)
+  GPU Temp(°C)
+~~~
+
+The intended preprocessing path is:
+
+~~~text
+Netdata time series
+        +
+DCGM time series
+        |
+        v
+scripts/align_telemetry.py
+        |
+        v
+aligned telemetry rows
+        |
+        v
+scripts/predict_power_from_aligned_telemetry.py
+        |
+        +--> predicted-power-series
+        |
+        +--> power-prediction-smoke summary
+~~~
+
+The adapter preserves the uploaded model's current `validation_required` status and does not make it ranking-eligible yet. Current blocking metadata are:
+
+~~~text
+Kubernetes node binding         missing
+physical GPU UUID binding       missing
+target semantics verification   missing
+node idle power                 missing
+production manifest status      not ready
+~~~
+
+The bundle target field is `ACTUAL_POWER_W`; its current manifest only infers `pdu-outlet-power` from artifact provenance. Automatic runtime/energy ranking remains blocked until the model owner confirms the physical node/outlet mapping and that the target is comparable node-total wall power.
+
+The power adapter deliberately does not multiply profiled-window power by predicted training time while these gates are unresolved.
