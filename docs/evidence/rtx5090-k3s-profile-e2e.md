@@ -681,3 +681,30 @@ power inference
 ~~~
 
 Nsight CUDA-event timestamps may remain local to the Nsight report; they do not need to be numerically identical to Unix timestamps used by Netdata/DCGM. The wrapper provides the common wall-clock profile/application boundaries used to associate the telemetry window with the same dry-run.
+
+The repository now includes the executable synchronization pieces:
+
+~~~text
+scripts/collect_netdata.py
+  canonical Netdata CPU/system collector
+  UTC Unix-ns request-midpoint timestamps
+  Agent or Parent /host/<hostname> endpoint
+  1 s polling; bounded or signal-terminated
+
+scripts/collect_dcgm.py
+  DCGM device telemetry collector
+  UTC Unix-ns request-midpoint timestamps
+  1 s polling; bounded or signal-terminated
+
+scripts/run_profile_with_telemetry.py
+  starts both collectors
+  enforces a pre-roll
+  records profile_start_ns/profile_end_ns
+  runs the wrapped profiling command
+  enforces a post-roll
+  stops collectors cleanly
+  runs Netdata/DCGM nearest-neighbor alignment
+  writes alignment-quality.json and aligned-telemetry.csv
+~~~
+
+The next live-cluster gate is endpoint discovery for the RTX5090 Netdata Parent path and the RTX5090-specific DCGM Exporter Pod endpoint, followed by wrapping the already validated Nsight Profile Job command with this synchronization layer.
