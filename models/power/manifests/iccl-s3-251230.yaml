@@ -15,12 +15,13 @@ required_features:
   - GPU Mem Used(MB)
   - CPU User%
   - GPU Power(W)
-  - GPU Temp(簞C)
-  - CPU Temp(簞C)
+  - GPU Temp(°C)
+  - CPU Temp(°C)
 
 target:
-  semantics: pdu-outlet-power
-  semantics_verified: false
+  semantics: node-total-power
+  semantics_verified: true
+  measurement_source: external-meter
   unit: W
 
 artifact:
@@ -32,5 +33,6 @@ preprocessing:
   sha256: 6e3938fccfe6da7c53432a0152dd4a6c1cce56b7c864903fefc117f7754cbbb2
 
 notes:
-  - User identified this PDU1 Outlet1 bundle as the RTX 4090 node model.
-  - Confirm outlet power as node-total-power and add idle power, validation metrics, missing-value policy, and OOD policy before changing status to ready.
+  - PDU1 Outlet1 is bound to the RTX 4090 node.
+  - ACTUAL_POWER_W is measured by an external meter and represents node-total wall power, not NVIDIA GPU power.
+  - Keep status validation_required until idle power, held-out metrics, missing-value policy, and formal OOD policy are frozen.
