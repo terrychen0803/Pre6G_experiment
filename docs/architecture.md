@@ -315,22 +315,50 @@ compute error
 Current validated ownership：
 
 ~~~text
-Netdata
-  CPU User/System/IOWait
-  Load 1/5/15
-  Memory Used/Free
-  CPU temperature
-  Top1/Top2/Top3 CPU process utilization
+Netdata Parent/Child
+  continuously monitors and stores:
+    CPU User/System/IOWait
+    Load 1/5/15
+    Memory Used/Free
+    CPU temperature
+    Top1/Top2/Top3 CPU process utilization
 
 DCGM Exporter
-  GPU Util
-  GPU framebuffer used
-  GPU temperature
-  GPU power
+  actively polled during the Profile Job:
+    GPU Util
+    GPU framebuffer used
+    GPU temperature
+    GPU power
 
 Nsight Systems
   target-process CUDA behavior
 ~~~
+
+Formal Profile Jobs do not create a second 1 Hz Netdata sampler. They only record the absolute wall-clock boundaries, run Nsight/workload plus the DCGM poller, and query the Netdata Parent historical database after the run:
+
+~~~text
+pre_window_start_ns
+       |
+DCGM start / pre-roll
+       |
+profile_start_ns
+       |
+Nsight + original workload
+       |
+profile_end_ns
+       |
+post-roll / DCGM stop
+       |
+post_window_end_ns
+       |
+       +--> Netdata Parent historical query [pre_window_start, post_window_end]
+       +--> dcgm.csv from active polling
+                         |
+                         v
+                  timestamp alignment
+~~~
+
+This keeps Netdata request latency outside the measurement cadence. The live-polling `collect_netdata.py` path is diagnostic only.
 
 Top1/Top2 per-process GPU utilization remain optional extension。
 
@@ -398,6 +426,8 @@ minimum complete cycles = 3
 ## Telemetry time alignment
 
 Canonical timestamp = UTC Unix nanoseconds。
+
+Netdata historical samples use the timestamp stored by the Netdata database and returned by the Parent historical API. The Profile Job queries them only after the workload using the recorded absolute window.
 
 DCGM：
 
