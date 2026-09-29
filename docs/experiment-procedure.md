@@ -601,14 +601,14 @@ For the steady-state MVP:
 predicted steady runtime
   = predicted runtime per work unit × total work units
 
-predicted incremental steady power
-  = max(0, predicted node-total steady power - node idle power)
+predicted node-total steady power
+  = node-bound power-model output
 
-predicted steady energy
-  = predicted incremental steady power × predicted steady runtime
+predicted steady gross energy
+  = predicted node-total steady power × predicted steady runtime
 ~~~
 
-Therefore, `observed_window_energy_j` from a 120-second power-inference smoke is diagnostic only and must not be used directly for candidate ranking. Whole-job energy remains unavailable until the non-steady runtime/power overhead contract is modeled.
+Therefore, `observed_window_energy_j` from a 120-second power-inference smoke is diagnostic only and must not be used directly for candidate ranking. Idle power is not required for the primary gross-energy objective. A future task-incremental-energy study would require a separately validated background-only counterfactual, especially on loaded nodes. Whole-job energy remains unavailable until the non-steady runtime/power overhead contract is modeled.
 
 
 只有下列條件都成立才允許 total-job extrapolation：
