@@ -847,3 +847,19 @@ align_telemetry.py
 ~~~
 
 Therefore the earlier `max_netdata_gap_s ~= 3.5 s` results from live `/allmetrics` polling are not treated as evidence that the Netdata database itself had the same sampling gap. The new historical-query path must be validated on-cluster before power/ranking is marked ready. The runtime trace result remains valid independently.
+
+
+### Historical Netdata query unit-test checkpoint
+
+On the k3s control-plane checkout at commit `9c18e17507ebfb8fe29190c66b5a3c0b1acb650a`, the new historical-query helper passed all four focused unit tests:
+
+~~~text
+test_historical_url_uses_absolute_window ... ok
+test_parse_array_payload                    ... ok
+test_parse_objectrows_payload               ... ok
+test_top_cpu_requires_three_finite_series   ... ok
+Ran 4 tests
+OK
+~~~
+
+The next gate is a live replay against the already-completed RTX5090 unified run: use that run's `pre_window_start_ns` and `post_window_end_ns` to query Netdata Parent history, then align the returned historical `netdata.csv` with the preserved `dcgm.csv`. This directly tests whether the earlier live-polling gaps disappear without re-running the workload.
