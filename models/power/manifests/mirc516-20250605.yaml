@@ -1,9 +1,9 @@
 schema_version: pre6g.power-model-manifest/v1
-status: unavailable
+status: validation_required
 
 model_scope: node-bound
-model_id: null
-model_version: null
+model_id: pdu1-outlet7-rtx5090-20260416-20260612
+model_version: "1.0.0"
 
 node_binding:
   kubernetes_node: mirc516-20250605
@@ -11,20 +11,28 @@ node_binding:
   gpu_model: NVIDIA GeForce RTX 5090
 
 feature_schema_version: pre6g-energy-features/v2
-required_features: null
+required_features:
+  - Top2 CPU%
+  - Top1 CPU%
+  - Top3 CPU%
+  - Mem Used(MB)
+  - Mem Free(MB)
+  - CPU User%
+  - GPU Power(W)
 
 target:
-  semantics: node-total-power
+  semantics: pdu-outlet-power
+  semantics_verified: false
   unit: W
 
 artifact:
-  uri: null
-  sha256: null
+  uri: repo://models/power/bundles/pdu1-outlet7-20260416-20260612/model.onnx
+  sha256: 9ae2f0db373ad39afcec841f7e9215d38b91d2f6cc277b39ac25b714a1e54754
 
 preprocessing:
-  manifest_uri: null
-  sha256: null
+  manifest_uri: repo://models/power/bundles/pdu1-outlet7-20260416-20260612/scaler.json
+  sha256: 31f2134066b4cd90fe4c8f74fe3017fa53ec3dbe2a0aa9ce902cdc3b967bdcd3
 
 notes:
-  - Populate the exact model identity, artifact URI/checksum, preprocessing manifest, and required feature order before changing status to ready.
-  - If the trained model requires Top1 GPU% or Top2 GPU%, keep status unavailable/schema_mismatch until a validated per-process GPU collector is available.
+  - User identified this PDU1 Outlet7 bundle as the RTX 5090 node model.
+  - Confirm outlet power as node-total-power and add idle power, validation metrics, missing-value policy, and OOD policy before changing status to ready.

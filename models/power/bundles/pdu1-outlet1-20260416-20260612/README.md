@@ -1,5 +1,13 @@
 # PDU1 Outlet1 power model (2026-04-16 to 2026-06-12)
 
+This bundle is annotated as the repository's RTX 4090 node model:
+
+| Binding | Value |
+|---|---|
+| Kubernetes node | `iccl-s3-251230` |
+| Physical GPU UUID | `GPU-39ace77c-cb0f-dd47-ae6b-12014c25b1d1` |
+| GPU model | NVIDIA GeForce RTX 4090 |
+
 This bundle predicts power in watts from five simultaneous CPU/GPU telemetry
 features. The ONNX graph has three inputs:
 
@@ -37,11 +45,11 @@ adapter preserves artifact compatibility while accepting the readable forms
 
 ## Current validation status
 
-This bundle is **not registered as a production-ready Pre6G node model**. The
-supplied files do not identify the Kubernetes node, physical GPU UUID, idle
-power, sampling interval, train/validation split, test metrics, missing-value
-policy, or a formal out-of-distribution policy. The original notebook also
-refers to a sample-data JSON file that was not supplied.
+This bundle is **not registered as a production-ready Pre6G node model**. Its
+RTX 4090 node/GPU association is now recorded, but the supplied files do not
+identify idle power, sampling interval, train/validation split, test metrics,
+missing-value policy, or a formal out-of-distribution policy. The original
+notebook also refers to a sample-data JSON file that was not supplied.
 
 The names `PDU1_Outlet1` and `ACTUAL_POWER_W` strongly suggest outlet-level
 power, but this target interpretation must be confirmed by the model owner.

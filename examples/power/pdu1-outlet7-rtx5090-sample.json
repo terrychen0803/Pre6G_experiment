@@ -1,0 +1,20 @@
+[
+  {
+    "Top2 CPU%": 45.0,
+    "Top1 CPU%": 90.0,
+    "Top3 CPU%": 35.0,
+    "Mem Used(MB)": 32768.0,
+    "Mem Free(MB)": 96000.0,
+    "CPU User%": 30.0,
+    "GPU Power(W)": 300.0
+  },
+  {
+    "Top2 CPU%": 60.0,
+    "Top1 CPU%": 125.0,
+    "Top3 CPU%": 48.0,
+    "Mem Used(MB)": 40000.0,
+    "Mem Free(MB)": 88000.0,
+    "CPU User%": 42.0,
+    "GPU Power(W)": 375.0
+  }
+]

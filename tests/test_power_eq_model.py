@@ -27,6 +27,23 @@ class PowerEqModelTests(unittest.TestCase):
         self.assertEqual(len(scaler["x_mins"]), 5)
         self.assertEqual(len(scaler["x_data_ranges"]), 5)
 
+    def test_rtx5090_bundle_scaler_has_consistent_feature_lengths(self):
+        path = (
+            Path(__file__).resolve().parents[1]
+            / "models"
+            / "power"
+            / "bundles"
+            / "pdu1-outlet7-20260416-20260612"
+            / "scaler.json"
+        )
+        scaler = load_scaler(path)
+        self.assertEqual(len(scaler["feature_cols"]), 7)
+        self.assertEqual(len(scaler["x_mins"]), 7)
+        self.assertEqual(len(scaler["x_data_ranges"]), 7)
+        self.assertEqual(scaler["core_indices"], ["CPU User%"])
+        self.assertEqual(scaler["direct_indices"], ["GPU Power(W)"])
+        self.assertEqual(len(scaler["other_indices"]), 5)
+
 
 if __name__ == "__main__":
     unittest.main()

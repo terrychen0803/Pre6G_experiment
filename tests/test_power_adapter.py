@@ -8,6 +8,24 @@ from pre6g_experiment.power_adapter import (
 
 
 class PowerAdapterTests(unittest.TestCase):
+    def test_feature_source_map_matches_rtx5090_bundle(self):
+        required = [
+            "Top2 CPU%",
+            "Top1 CPU%",
+            "Top3 CPU%",
+            "Mem Used(MB)",
+            "Mem Free(MB)",
+            "CPU User%",
+            "GPU Power(W)",
+        ]
+        sources = feature_source_map(required)
+        self.assertEqual(sources["Top2 CPU%"], "netdata")
+        self.assertEqual(sources["Top1 CPU%"], "netdata")
+        self.assertEqual(sources["Top3 CPU%"], "netdata")
+        self.assertEqual(sources["Mem Used(MB)"], "netdata")
+        self.assertEqual(sources["Mem Free(MB)"], "netdata")
+        self.assertEqual(sources["GPU Power(W)"], "dcgm")
+
     def test_feature_source_map_matches_uploaded_bundle(self):
         required = [
             "GPU Mem Used(MB)",

@@ -553,13 +553,14 @@ schemas/semantic-runtime.schema.json
 
 YOLO mounted-dataset discovery uses application-visible `data=...` plus original `epochs` / `batch`; it does not inspect iteration timestamps, NVTX, callbacks, or `iterations.csv`.
 
-## PDU1 Outlet1 power-model bundle
+## Node-bound PDU power-model bundles
 
-The repository includes the supplied ONNX power model and its exact Min-Max
-scaler as a reproducible, standalone bundle:
+The repository includes the supplied ONNX power models and their exact Min-Max
+scalers as reproducible, node-annotated bundles:
 
 ```text
 models/power/bundles/pdu1-outlet1-20260416-20260612/
+models/power/bundles/pdu1-outlet7-20260416-20260612/
 ```
 
 Run a smoke prediction with:
@@ -573,12 +574,14 @@ python scripts/predict_power_eq.py \
 ```
 
 The adapter accepts JSON or CSV telemetry and adds `PREDICTED_POWER_W` to each
-record. See the [bundle documentation](models/power/bundles/pdu1-outlet1-20260416-20260612/README.md)
-for the five-feature schema, normalization, artifact checksums, and known
+record. See the bundle documentation for
+[RTX 4090 / Outlet1](models/power/bundles/pdu1-outlet1-20260416-20260612/README.md)
+and [RTX 5090 / Outlet7](models/power/bundles/pdu1-outlet7-20260416-20260612/README.md)
+for their feature schemas, normalization, artifact checksums, and known
 validation gaps.
 
-The bundle is intentionally marked `validation_required` and is not listed in
-`models/power/registry.yaml`: the supplied artifacts do not identify their
-Kubernetes node or physical GPU UUID, and outlet-power semantics have not yet
-been confirmed as compatible with the project's `node-total-power` ranking
-contract.
+Outlet1 is bound to the RTX 4090 node (`iccl-s3-251230`), while Outlet7 is bound
+to the RTX 5090 node (`mirc516-20250605`). Both remain intentionally marked
+`validation_required`: outlet-power semantics, idle power, and held-out model
+quality have not yet been confirmed for the project's automatic
+`node-total-power` ranking contract.

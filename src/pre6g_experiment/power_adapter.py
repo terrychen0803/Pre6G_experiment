@@ -7,6 +7,11 @@ from typing import Any
 
 FEATURE_SOURCES = {
     "CPU User%": "netdata",
+    "Top1 CPU%": "netdata",
+    "Top2 CPU%": "netdata",
+    "Top3 CPU%": "netdata",
+    "Mem Used(MB)": "netdata",
+    "Mem Free(MB)": "netdata",
     "CPU Temp(°C)": "netdata",
     "GPU Mem Used(MB)": "dcgm",
     "GPU Power(W)": "dcgm",

@@ -1,7 +1,7 @@
 schema_version: pre6g.power-model-bundle/v1
 status: validation_required
 model_scope: node-bound
-model_id: pdu1-outlet1-20260416-20260612
+model_id: pdu1-outlet7-rtx5090-20260416-20260612
 model_version: "1.0.0"
 model_format: onnx
 
@@ -10,16 +10,18 @@ data_window_from_artifact_name:
   end: "2026-06-12"
 
 node_binding:
-  kubernetes_node: iccl-s3-251230
-  gpu_uuid: GPU-39ace77c-cb0f-dd47-ae6b-12014c25b1d1
-  gpu_model: NVIDIA GeForce RTX 4090
+  kubernetes_node: mirc516-20250605
+  gpu_uuid: GPU-a4e6b1ee-8a31-991f-dc82-fdab833483c4
+  gpu_model: NVIDIA GeForce RTX 5090
 
 required_features:
-  - GPU Mem Used(MB)
+  - Top2 CPU%
+  - Top1 CPU%
+  - Top3 CPU%
+  - Mem Used(MB)
+  - Mem Free(MB)
   - CPU User%
   - GPU Power(W)
-  - GPU Temp(°C)
-  - CPU Temp(°C)
 
 target:
   source_field: ACTUAL_POWER_W
@@ -29,15 +31,15 @@ target:
 
 artifact:
   path: model.onnx
-  sha256: 123fe38042a51ce18aa202ebff1083cce9da80714b9ec7b564741679a85797fb
+  sha256: 9ae2f0db373ad39afcec841f7e9215d38b91d2f6cc277b39ac25b714a1e54754
 
 preprocessing:
   path: scaler.json
-  sha256: 6e3938fccfe6da7c53432a0152dd4a6c1cce56b7c864903fefc117f7754cbbb2
+  sha256: 31f2134066b4cd90fe4c8f74fe3017fa53ec3dbe2a0aa9ce902cdc3b967bdcd3
   method: min-max
   clipping: false
 
 known_gaps:
   - Original sample-data JSON was not supplied.
-  - Target semantics have been inferred from filenames and must be confirmed.
+  - Outlet-level target semantics still need confirmation as node-total-power.
   - Idle power, held-out metrics, missing-value policy, and OOD policy are unknown.
