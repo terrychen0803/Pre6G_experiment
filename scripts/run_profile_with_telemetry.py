@@ -14,6 +14,14 @@ NETDATA_QUERY_SCRIPT = REPOSITORY_ROOT / "scripts" / "query_netdata_window.py"
 DCGM_SCRIPT = REPOSITORY_ROOT / "scripts" / "collect_dcgm.py"
 ALIGN_SCRIPT = REPOSITORY_ROOT / "scripts" / "align_telemetry.py"
 
+def _is_command_returncode_accepted(
+    returncode: int | None,
+    accepted_codes: list[int],
+) -> bool:
+    normalized = {int(value) for value in accepted_codes}
+    return returncode == 0 or returncode in normalized
+
+
 
 def _terminate(process: subprocess.Popen, timeout_s: float = 10.0) -> int:
     if process.poll() is not None:
@@ -305,9 +313,9 @@ def main() -> None:
     accepted_command_returncodes = sorted(
         set(int(value) for value in args.accept_command_returncode)
     )
-    command_returncode_accepted = (
-        command_returncode == 0
-        or command_returncode in accepted_command_returncodes
+    command_returncode_accepted = _is_command_returncode_accepted(
+        command_returncode,
+        accepted_command_returncodes,
     )
 
     result = {
