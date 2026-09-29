@@ -113,6 +113,24 @@ target.unit = W
 
 Node-specific idle power is then removed after prediction:
 
+The fixed dry-run/profile window is used to **estimate a representative workload power level or power behavior**, not as the ranking horizon itself. The diagnostic energy obtained by integrating power only over the profiling window must not be used as the candidate's scheduling energy.
+
+For the current steady-state MVP, ranking composes the two independent predictions:
+
+~~~text
+T_predicted_steady
+  = predicted_runtime_per_work_unit × total_work_units
+
+P_predicted_incremental
+  = max(0, P_predicted_node_steady - P_idle_node)
+
+E_predicted_steady
+  = P_predicted_incremental × T_predicted_steady
+~~~
+
+If a future power adapter predicts a time-varying power trajectory over semantic work units, that trajectory may be integrated over the **predicted workload runtime**. In either case, the 120-second profiling-window energy is validation/diagnostic evidence only.
+
+
 ~~~
 P_incremental(t) = max(0, P_node_predicted(t) - P_idle_node)
 
