@@ -732,3 +732,22 @@ DCGM_FI_DEV_POWER_USAGE
 ~~~
 
 The emitted CSV contains the canonical fields `node`, `gpu_uuid`, `gpu_model`, `driver_version`, `gpu_index`, GPU utilization, framebuffer used, temperature, and power. The exporter `Hostname` label is now used to validate the requested node rather than being written as an undeclared CSV field.
+
+### Unified RTX5090 telemetry alignment partial failure
+
+A live unified run completed the YOLO workload and generated the Nsight report successfully, but the telemetry quality gate failed on one criterion:
+
+~~~text
+netdata_samples                 41
+dcgm_samples                    42
+aligned_samples                 38
+alignment_coverage              0.9047619  PASS (>= 0.90)
+median_alignment_delta_ms       40.64
+max_alignment_delta_ms          541.22     PASS (<= 750 ms)
+max_dcgm_gap_s                  1.0006     PASS (<= 2 s)
+max_netdata_gap_s               3.4995     FAIL (> 2 s)
+~~~
+
+The workload command returned 0 and `profile.nsys-rep` was generated. The failure therefore belongs to the power/telemetry quality path, not the runtime trace path.
+
+The wrapper now keeps this distinction explicit: telemetry alignment quality remains fail-closed for power/ranking, but a `pass=false` alignment no longer aborts the runtime trace pipeline unless `--require-alignment-pass` is requested. This prevents one telemetry gap from discarding otherwise valid Nsight runtime evidence while preserving the downstream decision gate.
