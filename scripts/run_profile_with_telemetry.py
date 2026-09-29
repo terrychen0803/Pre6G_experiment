@@ -26,9 +26,20 @@ def _terminate(process: subprocess.Popen, timeout_s: float = 10.0) -> int:
         return int(process.wait())
 
 
-def _wait_for_samples(path: Path, minimum_rows: int, timeout_s: float) -> None:
+def _wait_for_samples(
+    path: Path,
+    minimum_rows: int,
+    timeout_s: float,
+    process: subprocess.Popen | None = None,
+    log_path: Path | None = None,
+) -> None:
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
+        if process is not None and process.poll() is not None:
+            suffix = f"; inspect {log_path}" if log_path is not None else ""
+            raise RuntimeError(
+                f"collector for {path} exited early with code {process.returncode}{suffix}"
+            )
         if path.is_file():
             try:
                 lines = sum(1 for _ in path.open("r", encoding="utf-8"))
@@ -145,8 +156,20 @@ def main() -> None:
             int(args.pre_roll_s * 1000 / args.interval_ms),
         )
         startup_timeout = max(10.0, args.pre_roll_s + 8.0)
-        _wait_for_samples(netdata_csv, minimum_pre_samples, startup_timeout)
-        _wait_for_samples(dcgm_csv, minimum_pre_samples, startup_timeout)
+        _wait_for_samples(
+            netdata_csv,
+            minimum_pre_samples,
+            startup_timeout,
+            process=netdata_process,
+            log_path=netdata_log_path,
+        )
+        _wait_for_samples(
+            dcgm_csv,
+            minimum_pre_samples,
+            startup_timeout,
+            process=dcgm_process,
+            log_path=dcgm_log_path,
+        )
 
         timestamps["profile_start_ns"] = time.time_ns()
         completed = subprocess.run(command, check=False)
