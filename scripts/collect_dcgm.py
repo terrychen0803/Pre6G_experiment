@@ -157,14 +157,24 @@ def collect(args: argparse.Namespace) -> dict[str, Any]:
             timestamp_ns = (request_start_ns + request_end_ns) // 2
             values, identity = parse_metric_text(body, args.gpu_uuid)
 
+            exporter_hostname = identity.get("hostname", "")
+            if args.node and exporter_hostname and exporter_hostname != args.node:
+                raise ValueError(
+                    "DCGM exporter hostname does not match --node: "
+                    f"{exporter_hostname!r} != {args.node!r}"
+                )
+
             writer.writerow(
                 {
                     "timestamp_ns": timestamp_ns,
                     "timestamp_utc": utc_iso(timestamp_ns),
                     "request_start_ns": request_start_ns,
                     "request_end_ns": request_end_ns,
-                    "node": args.node or identity.get("hostname", ""),
-                    **identity,
+                    "node": args.node or exporter_hostname,
+                    "gpu_uuid": identity.get("gpu_uuid", ""),
+                    "gpu_model": identity.get("gpu_model", ""),
+                    "driver_version": identity.get("driver_version", ""),
+                    "gpu_index": identity.get("gpu_index", ""),
                     **values,
                 }
             )
