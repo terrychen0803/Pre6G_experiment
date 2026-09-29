@@ -111,35 +111,42 @@ target.semantics = node-total-power
 target.unit = W
 ~~~
 
-Node-specific idle power is then removed after prediction:
+The current scheduling objective is **gross node energy during the predicted task
+runtime**. Because the registered power models predict whole-node wall power,
+the primary ranking metric uses the node-total prediction directly.
 
-The fixed dry-run/profile window is used to **estimate a representative workload power level or power behavior**, not as the ranking horizon itself. The diagnostic energy obtained by integrating power only over the profiling window must not be used as the candidate's scheduling energy.
+The fixed dry-run/profile window is used to **estimate a representative workload
+power level or power behavior**, not as the ranking horizon itself. The
+diagnostic energy obtained by integrating power only over the profiling window
+must not be used as the candidate's scheduling energy.
 
-For the current steady-state MVP, ranking composes the two independent predictions:
+For the current steady-state MVP:
 
 ~~~text
 T_predicted_steady
   = predicted_runtime_per_work_unit × total_work_units
 
-P_predicted_incremental
-  = max(0, P_predicted_node_steady - P_idle_node)
-
-E_predicted_steady
-  = P_predicted_incremental × T_predicted_steady
+E_predicted_steady_gross
+  = P_predicted_node_steady × T_predicted_steady
 ~~~
 
-If a future power adapter predicts a time-varying power trajectory over semantic work units, that trajectory may be integrated over the **predicted workload runtime**. In either case, the 120-second profiling-window energy is validation/diagnostic evidence only.
+If a future power adapter predicts a time-varying power trajectory over semantic
+work units, that trajectory may be integrated over the **predicted workload
+runtime**. In either case, the 120-second profiling-window energy is
+validation/diagnostic evidence only.
 
+An idle or background baseline may still be recorded as an optional diagnostic.
+It is not subtracted from the primary gross-energy ranking metric. If a future
+study asks for the **incremental energy caused by the submitted task**, use a
+separately validated background-only counterfactual:
 
+~~~text
+P_task_incremental(t)
+  = max(0, P_with_task(t) - P_background_only(t))
 ~~~
-P_incremental(t) = max(0, P_node_predicted(t) - P_idle_node)
 
-E_incremental = integral(P_incremental(t), t)
-~~~
-
-This keeps nodes with different idle baselines comparable.
-
-Do not mix node-total-power and task-incremental-power models in one automatic ranking operation. If future experiments introduce another target semantic, add an explicit normalization layer and version the ranking contract.
+For a loaded node, this background-only baseline is not equivalent to machine
+idle power.
 
 ## Feature availability
 
@@ -195,7 +202,7 @@ Each node result should include:
     "target_semantics": "node-total-power",
     "target_unit": "W",
     "steady_power_w": 350.0,
-    "idle_power_w": 80.0,
+    "idle_power_w": null,
     "confidence": 0.93,
     "ood": false,
     "missing_features": []
