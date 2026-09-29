@@ -106,3 +106,45 @@ run was executed under an uncontrolled external GPU background load. Therefore
 this result is retained as deployment-smoke evidence rather than a held-out
 accuracy claim. Semantic work discovery and execution-cycle-to-work-unit binding
 must be applied before extrapolating a steady workload runtime.
+
+
+## RTX4090 semantic work discovery and steady-runtime aggregation
+
+The formal YOLO source Job was resolved from static semantics without iteration
+markers or callbacks:
+
+~~~text
+workload_family                    YOLO26
+adapter                            yolo
+epochs                             30
+batch_size                         16
+dataset_train_samples              512
+steps_per_epoch                    32
+total_work_units                   960
+work_unit                          training_iteration
+discovery_mode                     static-semantic-contract
+~~~
+
+The validated YOLO/yolo-v1 binding resolved one marker-free
+`execution_cycle` to one `training_iteration`:
+
+~~~text
+cycles_per_work_unit               1.0
+~~~
+
+Combining the frozen RTX4090 model output with this work contract produced:
+
+~~~text
+predicted_runtime_ms_per_execution_cycle   63.320823290313726
+predicted_runtime_ms_per_work_unit          63.320823290313726
+total_work_units                            960
+predicted_steady_runtime_s                  60.78799035870118
+predicted_total_job_runtime_s               null
+total_job_runtime_status                    pending-non-steady-overhead-model
+aggregation_scope                           steady-work-only
+~~~
+
+The 60.78799 s value is the predicted semantic steady-work duration for the
+complete 30-epoch workload. It is not the measured profile duration and it does
+not include non-steady startup, validation, checkpointing, or teardown
+overheads.
