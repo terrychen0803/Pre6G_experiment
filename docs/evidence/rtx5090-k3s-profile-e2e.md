@@ -653,7 +653,7 @@ Pre6G_experiment/docs/netdata-contract.md
 
 The current RTX4090/RTX5090 K3s runtime Profile Job evidence did not capture Netdata/DCGM telemetry in the same formal profile window. Therefore those runtime artifacts and the previous telemetry validation must not be treated as one synchronized experiment.
 
-The formal deployment flow must run telemetry collection concurrently with the short Nsight dry-run:
+The deployment telemetry flow (validated first with a short integration dry-run, then reused unchanged for the formal 120-second Phase 07 capture) is:
 
 ~~~text
 pre-window
@@ -918,6 +918,8 @@ The next integration gate is to run the unified Profile Job with this historical
 ### Corrected unified RTX5090 historical-telemetry E2E PASS
 
 A fresh unified Profile Job using the corrected historical Netdata implementation completed successfully in 79 seconds and generated `pre6g.profile-wall-clock/v2` timestamps. The wrapper no longer performs profile-time Netdata `/allmetrics` polling.
+
+This run is an **integration smoke for the telemetry/runtime pipeline, not the formal Phase 07 120-second profiling result**. Its `profile_start_ns` to `profile_end_ns` interval is about 33.4 s. The formal workflow keeps the same telemetry architecture but uses the configured 120-second Nsight capture policy before final artifact generation (unless the original workload naturally exits earlier, in which case the shorter actual capture is preserved and quality-gated).
 
 Wall-clock boundaries:
 
