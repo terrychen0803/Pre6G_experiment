@@ -152,9 +152,6 @@ def _reject_reason(
     if float(steady_power) < 0:
         return "invalid power prediction"
 
-    if "idle_power_w" not in power or float(power["idle_power_w"]) < 0:
-        return "node-total-power ranking requires non-negative idle_power_w"
-
     return None
 
 
@@ -183,13 +180,12 @@ def rank_nodes(
                 "steady_power_w", item["power"].get("predicted_power_w")
             )
         )
-        idle_power = float(item["power"]["idle_power_w"])
-
-        # The first production contract accepts node-total-power models only.
-        # Ranking uses incremental power so nodes with different idle baselines
-        # remain comparable.
-        incremental_power = max(0.0, predicted_power - idle_power)
-        energy_per_work_unit = incremental_power * runtime_ms / 1000.0
+        # The current scheduling objective ranks the actual node energy
+        # expected during task execution. The power model predicts whole-node
+        # wall power, so the ranking contract uses that gross node-total power
+        # directly. idle_power_w, when available, is diagnostic/optional and is
+        # not subtracted from the primary ranking metric.
+        energy_per_work_unit = predicted_power * runtime_ms / 1000.0
 
         confidence = min(
             float(item["runtime"]["confidence"]),
