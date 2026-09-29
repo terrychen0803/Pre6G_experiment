@@ -25,8 +25,9 @@ required_features:
 
 target:
   source_field: ACTUAL_POWER_W
-  inferred_semantics: pdu-outlet-power
-  semantics_verified: false
+  semantics: node-total-power
+  semantics_verified: true
+  measurement_source: external-meter
   unit: W
 
 artifact:
@@ -41,5 +42,4 @@ preprocessing:
 
 known_gaps:
   - Original sample-data JSON was not supplied.
-  - Outlet-level target semantics still need confirmation as node-total-power.
-  - Idle power, held-out metrics, missing-value policy, and OOD policy are unknown.
+  - Idle power, held-out metrics, missing-value policy, and formal OOD policy are unknown.
