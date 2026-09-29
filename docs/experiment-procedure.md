@@ -502,6 +502,8 @@ PASS：
 - sample=none
 - cpuctxsw=none
 - configured capture = 120 s
+- Nsight `--duration=120 --kill=sigterm --stop-on-exit=true`
+- wrapper explicitly accepts return code `143` only for this known duration/SIGTERM termination path; other non-zero wrapped-command codes remain failures
 - workload 若提早自然完成則保存實際長度
 - report finalization 後才做 offline marker-free detection
 - target cycles >= 3
