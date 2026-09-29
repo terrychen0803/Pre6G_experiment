@@ -593,6 +593,24 @@ target_unit = W
 
 ### Total runtime / energy
 
+The formal 120-second profiling window is an observation window for runtime/power feature estimation. It is **not** the energy-ranking duration.
+
+For the steady-state MVP:
+
+~~~text
+predicted steady runtime
+  = predicted runtime per work unit × total work units
+
+predicted incremental steady power
+  = max(0, predicted node-total steady power - node idle power)
+
+predicted steady energy
+  = predicted incremental steady power × predicted steady runtime
+~~~
+
+Therefore, `observed_window_energy_j` from a 120-second power-inference smoke is diagnostic only and must not be used directly for candidate ranking. Whole-job energy remains unavailable until the non-steady runtime/power overhead contract is modeled.
+
+
 只有下列條件都成立才允許 total-job extrapolation：
 
 ~~~text
