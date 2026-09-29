@@ -1047,3 +1047,31 @@ This validates the current formal Phase 07 pipeline end to end for the RTX5090
 fixture. A remaining timestamp-contract improvement is to persist an explicit
 formal capture boundary (or equivalent Nsight-derived capture duration) so
 power-window cropping does not use the wider outer command interval.
+
+
+### Formal 120-second aligned telemetry window
+
+For the validated RTX5090 Phase 07 run, the configured capture window was
+projected from the wrapper's outer profile start plus the explicitly configured
+120-second Nsight duration:
+
+~~~text
+capture_start_ns                  1790694093333607841
+configured_capture_end_ns         1790694213333607841
+configured_capture_seconds        120.0
+all aligned telemetry rows        147
+rows inside configured window     120
+first selected timestamp_ns       1790694094108950101
+last selected timestamp_ns        1790694213109151685
+~~~
+
+The 120 selected rows are consistent with the approximately 1 Hz aligned
+Netdata/DCGM cadence and cover essentially the complete configured capture
+interval.
+
+This crop is valid for this run because the formal profiler reached its
+configured duration and terminated the target through the expected
+`--kill=sigterm` path. It must not be generalized to a workload that naturally
+exits before 120 seconds. The repository still needs an explicit persisted
+configured-capture/deadline contract so downstream power processing does not
+infer the window ad hoc from the wider outer Nsight command interval.
