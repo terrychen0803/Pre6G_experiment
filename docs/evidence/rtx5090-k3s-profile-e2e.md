@@ -751,3 +751,36 @@ max_netdata_gap_s               3.4995     FAIL (> 2 s)
 The workload command returned 0 and `profile.nsys-rep` was generated. The failure therefore belongs to the power/telemetry quality path, not the runtime trace path.
 
 The wrapper now keeps this distinction explicit: telemetry alignment quality remains fail-closed for power/ranking, but a `pass=false` alignment no longer aborts the runtime trace pipeline unless `--require-alignment-pass` is requested. This prevents one telemetry gap from discarding otherwise valid Nsight runtime evidence while preserving the downstream decision gate.
+
+### Unified RTX5090 Profile Job end-to-end completion
+
+A subsequent live run of `pre6g-unified-yolo26-5090-mvp-v1` completed successfully (`1/1`, 51 s) and persisted the marker-free detector result, runtime features, packaged ProfileResult, raw Netdata/DCGM telemetry, aligned telemetry, quality report, logs, and profile-window timestamps to the shared RWX artifact store.
+
+The marker-free detector accepted an `execution_cycle` with:
+
+~~~text
+detected_period_ms          111.62083475
+confidence                  0.7399524734
+complete_cycles             134
+horizon_seconds             15
+hardware_trace              true
+two_window_stability_pass   true
+NVTX required               false
+~~~
+
+The production-input policy confirms that the detector does not use `iterations.csv`, NVTX, callbacks, epoch labels, or batch labels.
+
+Telemetry was preserved but remains ineligible for power/ranking because the quality gate failed:
+
+~~~text
+netdata_samples             38
+dcgm_samples                39
+aligned_samples             29
+alignment_coverage          0.7435897   FAIL (< 0.90)
+median_alignment_delta_ms   45.57
+max_alignment_delta_ms      547.17      PASS (<= 750 ms)
+max_netdata_gap_s           3.5016      FAIL (> 2 s)
+max_dcgm_gap_s              1.0006      PASS (<= 2 s)
+~~~
+
+This run therefore validates the unified runtime-profile artifact path end to end while intentionally keeping the power/energy decision path fail-closed until Netdata sampling continuity is corrected.
