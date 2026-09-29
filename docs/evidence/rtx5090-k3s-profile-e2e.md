@@ -390,6 +390,38 @@ schemas/semantic-binding.schema.json
 schemas/semantic-runtime.schema.json
 ~~~
 
+Formal repository validation on `icclz2` after updating to commit `88946cae30cf0694e0630c9a6740c280b8ca436b`:
+
+~~~text
+python -m unittest discover -s tests -v
+Ran 25 tests
+OK
+~~~
+
+The production-oriented aggregation CLI was then rerun against the actual Kubernetes-generated artifacts rather than the earlier inline Python smoke:
+
+~~~text
+scripts/aggregate_runtime.py
+  runtime-prediction.json
+  + workload-discovery.json
+  -> semantic-runtime.json
+~~~
+
+Observed semantic runtime:
+
+~~~text
+work_unit                           training_iteration
+total_work_units                    128
+runtime_ms_per_execution_cycle      115.60792921841606
+runtime_ms_per_work_unit            115.60792921841606
+predicted_steady_runtime_s          14.797814939957256
+predicted_total_job_runtime_s       null
+total_job_runtime_status            pending-non-steady-overhead-model
+aggregation_scope                   steady-work-only
+~~~
+
+The resulting `semantic-runtime.json` was persisted in the shared artifact store alongside the existing marker-free/runtime artifacts.
+
 Not yet completed:
 
 ~~~text
