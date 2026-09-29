@@ -512,3 +512,37 @@ harmonic_corrected                  false
 The current seven-feature runtime schema was emitted successfully and all forbidden production inputs remained false. This establishes **schema/data compatibility** for historical RTX4090 traces, but the C03 historical trace does not satisfy the stricter two-window-stability gate because only one deployment horizon was ultimately selected. The historical batch builder therefore records this quality field explicitly rather than silently treating it as equivalent to the current K3s Profile Job evidence.
 
 `scripts/build_historical_runtime_samples.py` batch-reprocesses C01-C24 one workload at a time, deletes temporary SQLite exports by default, preserves marker-free detection/runtime-feature artifacts, joins only the baseline `steady_window_mean_iter_ms` median as a training label, and writes quality/failure summaries for model-development review.
+
+### RTX4090 trace-only deployment-smoke model
+
+Historical batch rebuilding completed for all 24 YOLO workloads:
+
+~~~text
+samples                         24 / 24
+detector accepted               24 / 24
+two-window-stable samples       15
+accepted fallback samples        9
+failures                         0
+~~~
+
+A seven-feature ridge log-runtime model was fitted with leave-one-workload-out alpha selection over the fixed candidate set `[0.01, 0.1, 1.0, 10.0, 100.0]`.
+
+~~~text
+model_id                         RTX4090_yolo_trace_only_v1
+selected alpha                   1.0
+LOOW MAPE                        4.6175495953 %
+median APE                       4.2598542698 %
+P90 APE                          8.9385418504 %
+max APE                         14.0269897896 %
+MAE                              2.0414712063 ms
+RMSE                             2.4141930808 ms
+bias                            -0.0754359672 ms
+~~~
+
+The bundle is stored at:
+
+~~~text
+models/runtime/RTX4090_yolo_trace_only_v1.json
+~~~
+
+This remains a `deployment-smoke` model. Its training set is historical clean-condition RTX4090 data and includes nine accepted detector fallback samples; current K3s features therefore require OOD/quality interpretation before any production-quality ranking claim.
