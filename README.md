@@ -372,6 +372,13 @@ python scripts/align_telemetry.py --help
 
 ## Unified experiment runner and result dashboard
 
+用途與入口：
+
+- [整合執行程式](scripts/run_experiment_pipeline.py)：串接現有實驗腳本，輸出 JSON、各階段 log 與選定節點的 Job YAML；不會自動提交 Kubernetes Job。
+- [完整使用說明](docs/unified-workflow.md)：安裝、Windows／Linux 範例、profile 輸入、選用 power 推論、續跑限制與錯誤排查。
+- [靜態展示介面使用說明](dashboard/README.md)：下載後用瀏覽器開啟 `dashboard/index.html`。介面與 runner 獨立，數據不會自動更新。
+- [平台目的與實驗盤點](docs/project-assessment-zh.md)：已完成項目、資料來源與待驗證範圍。
+
 The previously separate experiment commands can now be executed as one
 resumable workflow. Every run writes stage logs and a machine-readable
 `run-summary.json` even when a stage fails.

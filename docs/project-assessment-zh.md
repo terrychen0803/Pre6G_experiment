@@ -1,5 +1,7 @@
 # Pre6G 專案流程與實驗盤點
 
+本盤點已對照遠端 `75a4690` 的最新研究排序紀錄；以下保留早期 smoke 的數據，並分別標示正式 960-unit 跨節點結果。
+
 ## 平台目的
 
 Pre6G 的目標不是單純量測某張 GPU 的速度，而是接收使用者原始 Kubernetes `batch/v1 Job`，在不要求 workload 加入 iteration marker、callback 或客製 instrumentation 的前提下，建立候選節點當下的 runtime 與 power 證據，最後只在資料品質與模型契約都通過時進行 energy-aware placement。
@@ -44,7 +46,10 @@ User Job
 | Kubernetes Profile Job E2E | RTX5090 Job complete、worker-local Nsight、NFS RWX JSON handoff | detector 126.855 ms、confidence 0.730、118 cycles、ProfileResult ready |
 | Control-side runtime inference | Frozen RTX5090 model 讀取 shared runtime features | 115.608 ms/execution cycle；128 units steady runtime 14.798 s |
 | Power model adapter | 兩個 ONNX/scaler bundle、feature mapping、OOD/missing-feature gate | 只能主張 inference smoke；尚不可主張可比較的 production energy ranking |
-| Placement decision | Runtime/power/quality gate、incremental energy score、production Job renderer | synthetic two-node path 已通；真實 automatic placement 尚未完成 |
+| Placement decision | Runtime/power/quality gate、gross node energy score、production Job renderer | synthetic path 已通；嚴格 production gate 仍保留 |
+| 正式雙節點研究比較 | 960 training iterations；RTX4090 預測 60.788 s / 354.323 W；RTX5090 預測 123.622 s / 462.282 W | gross steady energy 分別 21.539 / 57.148 kJ；provisional 選 RTX4090，預測低 62.31% |
+
+最新比較詳見 [跨節點研究證據](evidence/formal-cross-node-energy-comparison.md)。它已完成 `RANKED -> NODE_SELECTED`；兩個 power bundle 仍為 `validation_required` 且有 OOD，production Job 執行與 ground-truth validation 尚未完成。這些是模型預測比較，尚非實測節能成果。
 
 ## 不能過度解讀的結果
 
@@ -52,13 +57,13 @@ User Job
 - `predicted_steady_runtime_s` 不包含 startup、warmup、validation、checkpoint 與 finalization；因此 `predicted_total_job_runtime_s` 仍為 `null`。
 - RTX5090 C03 的 7.48% runtime smoke comparison 不是 held-out generalization，因為該 workload 出現在 final-fit dataset。
 - Clean 與 high-load 不可互換；clean-only model 轉到 high-load 的 reference MAPE 為 68.70%。
-- 兩個 power bundle 雖可推論，仍缺 target semantics、idle power、held-out quality 與完整 node/GPU UUID binding 驗證。
+- 最新 power manifest 已記錄 node/GPU UUID 綁定與已確認的外部電表 node-total-power 語意；仍缺 held-out quality、正式 OOD 與 missing-value policy。排序改用 gross node energy，idle power 不是必要 gate。
 
 ## 目前缺口
 
 1. Kubernetes controller/reconciler：自動建立每個 candidate Profile Job、等待 artifact、重試與清理。
 2. Artifact assembler：把 runtime、power、sharing 與 quality artifacts 組成正式多節點 `node-results`。
-3. Power production validation：確認 PDU outlet 對應 node-total wall power、idle baseline、physical GPU UUID 與 held-out accuracy。
+3. Power production validation：處理正式測試的 OOD、held-out accuracy、missing-value policy 與 production manifest readiness。
 4. RTX4090 paired high-load dataset 與 OOD policy。
 5. Whole-job non-steady overhead model與真正 production run 的 prediction-vs-ground-truth evaluation。
 6. 超出 YOLO 的 workload detector profile、semantic binding 與 runtime model。

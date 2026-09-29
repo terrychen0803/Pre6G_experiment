@@ -209,6 +209,15 @@
             <span class="badge warn">● MVP · 部分 gate 尚未完成</span>
           </div>
 
+          <section class="section card panel">
+            <div class="section-head"><h2>最新雙節點研究比較 · 960 training iterations</h2><span class="badge warn">Provisional · power OOD</span></div>
+            <div class="table-wrap"><table><thead><tr><th>候選節點</th><th class="num">預測 steady runtime</th><th class="num">預測節點功率</th><th class="num">預測 gross energy</th></tr></thead><tbody>
+              <tr><td>RTX4090 · iccl-s3-251230 · 研究選定</td><td class="num">60.788 s</td><td class="num">354.323 W</td><td class="num">21.539 kJ</td></tr>
+              <tr><td>RTX5090 · mirc516-20250605</td><td class="num">123.622 s</td><td class="num">462.282 W</td><td class="num">57.148 kJ</td></tr>
+            </tbody></table></div>
+            <p class="muted">預測能耗低 62.31%；尚待 production ground-truth 驗證。兩個 power bundle 皆為 validation_required，研究選點未改動正式品質 gate。</p>
+          </section>
+          <section class="section"><h2>早期 RTX5090 smoke 證據</h2></section>
           <div class="metric-grid">
             <article class="card metric"><div class="label">RTX5090 Profile Job</div><div class="value">118</div><div class="detail">完整 execution cycles</div></article>
             <article class="card metric"><div class="label">Detector confidence</div><div class="value">0.730</div><div class="detail">two-window stability</div></article>
@@ -217,7 +226,7 @@
           </div>
 
           <section class="section">
-            <div class="section-head"><h2>使用者實際會走的流程</h2><span class="muted">自動化 pipeline</span></div>
+            <div class="section-head"><h2>平台目標使用流程</h2><span class="muted">部分步驟仍需人工操作</span></div>
             <div class="card flow" aria-label="Pre6G 六階段流程">
               <div class="flow-step"><span class="step-no">01</span><strong>提交 Kubernetes Job</strong><small>保留 image、argv、資源與 volume</small></div>
               <div class="flow-step"><span class="step-no">02</span><strong>辨識總工作量</strong><small>argv、config 與 mounted dataset</small></div>
@@ -242,10 +251,11 @@
 
             <article class="card panel">
               <h2>Production readiness</h2>
-              <div class="gate"><div class="gate-line"><span>Marker-free runtime</span><strong>已驗證</strong></div><div class="track"><div class="fill" style="width:100%"></div></div></div>
-              <div class="gate"><div class="gate-line"><span>共享 artifact handoff</span><strong>已驗證</strong></div><div class="track"><div class="fill" style="width:100%"></div></div></div>
-              <div class="gate"><div class="gate-line"><span>Power model binding</span><strong>待確認</strong></div><div class="track"><div class="fill amber" style="width:45%"></div></div></div>
-              <div class="gate"><div class="gate-line"><span>自動節點排序</span><strong>尚未開放</strong></div><div class="track"><div class="fill amber" style="width:30%"></div></div></div>
+              <div class="gate"><div class="gate-line"><span>Marker-free runtime</span><strong>YOLO smoke 已驗證</strong></div></div>
+              <div class="gate"><div class="gate-line"><span>共享 artifact handoff</span><strong>已驗證</strong></div></div>
+              <div class="gate"><div class="gate-line"><span>Power target / binding</span><strong>已記錄確認</strong></div></div>
+              <div class="gate"><div class="gate-line"><span>Power OOD / quality</span><strong>待驗證</strong></div></div>
+              <div class="gate"><div class="gate-line"><span>跨節點研究排序</span><strong>已選 RTX4090</strong></div></div>
             </article>
           </section>
         </section>
@@ -270,19 +280,19 @@
         </section>
 
         <section data-view="power">
-          <div class="hero"><div><h1>Power、Energy 與安全限制</h1><p>兩個 ONNX bundle 已能執行推論，但目前不能用來宣稱 production energy ranking，因為 target semantics、idle baseline 與實體綁定仍未完整驗證。</p></div><span class="badge warn">validation_required</span></div>
+          <div class="hero"><div><h1>Power、Energy 與驗證範圍</h1><p>兩個 ONNX bundle 已完成推論與研究選點。外部電表的 node-total-power 語意及 node/GPU 綁定已記錄確認；正式測試仍有 OOD 與模型品質缺口。</p></div><span class="badge warn">validation_required</span></div>
           <section class="two-col">
             <article class="card panel">
               <h2>目前已完成</h2>
               <div class="finding"><span class="finding-mark"></span><div><strong>兩個 node-specific ONNX bundle 已納入 registry</strong><p>Outlet1 對應 RTX4090，Outlet7 對應 RTX5090，包含 scaler、manifest 與 smoke input。</p></div></div>
-              <div class="finding"><span class="finding-mark"></span><div><strong>Netdata 與 DCGM 可依 timestamp 對齊</strong><p>品質 gate：coverage ≥ 90%、最大差值 ≤ 750 ms、source gap ≤ 2 s。</p></div></div>
+              <div class="finding"><span class="finding-mark"></span><div><strong>Netdata 歷史資料與 DCGM 可依 timestamp 對齊</strong><p>Profile 結束後查詢 Netdata 歷史 window。品質 gate：coverage ≥ 90%、最大差值 ≤ 750 ms、source gap ≤ 2 s。</p></div></div>
               <div class="finding"><span class="finding-mark"></span><div><strong>可輸出逐筆 predicted power series</strong><p>推論 adapter 支援缺欄位與 OOD fail-closed，不會靜默補零。</p></div></div>
             </article>
             <article class="card panel">
               <h2>阻擋自動排程的項目</h2>
-              <div class="finding"><span class="finding-mark pending"></span><div><strong>確認 PDU outlet target semantics</strong><p>必須證實能跨節點比較為 node-total wall power。</p></div></div>
-              <div class="finding"><span class="finding-mark pending"></span><div><strong>補齊 physical GPU UUID 與 node binding</strong><p>避免模型套用到錯誤實體設備。</p></div></div>
-              <div class="finding"><span class="finding-mark pending"></span><div><strong>量測 idle power 與 held-out accuracy</strong><p>ranking 使用 incremental power，需要可靠 idle baseline。</p></div></div>
+              <div class="finding"><span class="finding-mark pending"></span><div><strong>驗證 power OOD 與 held-out accuracy</strong><p>RTX4090 GPU 記憶體與 RTX5090 GPU 功率有超出模型記錄範圍的樣本。</p></div></div>
+              <div class="finding"><span class="finding-mark pending"></span><div><strong>完成 Production Job 與 ground-truth 比較</strong><p>目前完成研究選點；21.539 / 57.148 kJ 為模型預測結果。</p></div></div>
+              <div class="finding"><span class="finding-mark pending"></span><div><strong>驗證 steady power 的代表性</strong><p>排序使用 gross node power × predicted steady runtime；不扣 idle power，也不使用 profiling-window energy 直接排序。</p></div></div>
               <div class="finding"><span class="finding-mark pending"></span><div><strong>補 RTX4090 high-load paired dataset</strong><p>現有 RTX4090 模型只涵蓋 clean historical traces。</p></div></div>
             </article>
           </section>
