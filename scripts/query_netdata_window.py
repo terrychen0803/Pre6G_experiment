@@ -293,27 +293,38 @@ def query_window(
     )
 
     app_series: list[dict[int, dict[str, float | None]]] = []
-    failed_app_charts: list[str] = []
+    queried_app_charts: list[str] = []
+    unavailable_app_charts: list[str] = []
+
     for chart_id in app_charts:
         try:
-            app_series.append(
-                _query_chart(
-                    base_url,
-                    chart_id,
-                    after_s,
-                    before_s,
-                    timeout_s,
-                    retries,
-                )
+            series = _query_chart(
+                base_url,
+                chart_id,
+                after_s,
+                before_s,
+                timeout_s,
+                retries,
             )
         except Exception:
-            failed_app_charts.append(chart_id)
+            # app.* charts are process-group time series and can be
+            # transient. A chart visible "now" may not have existed in the
+            # historical dry-run window (or its historical series may already
+            # have expired). This is not, by itself, a window-level failure.
+            unavailable_app_charts.append(chart_id)
+            continue
 
-    if failed_app_charts:
+        if not series:
+            unavailable_app_charts.append(chart_id)
+            continue
+
+        queried_app_charts.append(chart_id)
+        app_series.append(series)
+
+    if len(app_series) < 3:
         raise RuntimeError(
-            "Failed to query historical data for app CPU charts: "
-            + ", ".join(failed_app_charts[:10])
-            + (" ..." if len(failed_app_charts) > 10 else "")
+            "Netdata historical window exposes fewer than three usable "
+            "app CPU series; cannot derive Top1/Top2/Top3 CPU%"
         )
 
     rows: list[dict[str, Any]] = []
@@ -378,7 +389,10 @@ def query_window(
         "first_timestamp_ns": rows[0]["timestamp_ns"],
         "last_timestamp_ns": rows[-1]["timestamp_ns"],
         "temperature_chart": temp_chart,
-        "app_cpu_chart_count": len(app_charts),
+        "app_cpu_chart_count_discovered": len(app_charts),
+        "app_cpu_chart_count_queried": len(queried_app_charts),
+        "app_cpu_chart_count_unavailable": len(unavailable_app_charts),
+        "unavailable_app_cpu_charts": unavailable_app_charts,
         "query_mode": "historical",
         "timestamp_source": "netdata-database",
     }
