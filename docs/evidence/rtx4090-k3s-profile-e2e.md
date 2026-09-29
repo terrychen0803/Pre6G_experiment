@@ -223,3 +223,24 @@ processing must use a natural-exit-aware boundary; the retained final YOLO
 wall-clock output is used as the current operational end marker for this
 specific run, with the limitation that it is a log-derived application-end
 proxy rather than a persisted profiler boundary.
+
+
+## RTX4090 natural-exit telemetry crop
+
+Using the log-derived natural application-end proxy from the same formal run,
+the already aligned telemetry was cropped to the following wall-clock window:
+
+~~~text
+crop_start_ns                       1790700245940091691
+crop_end_ns                         1790700355500159060
+selected_rows                       109
+first_selected_timestamp_ns         1790700246723896194
+last_selected_timestamp_ns          1790700354723789759
+selected_sample_span_s              107.999893565
+~~~
+
+The selected rows are approximately 1 Hz and remain a diagnostic
+natural-exit-aware application window. This is preferable to incorrectly using
+`profile_start + 120 s` after the target naturally exited, but it is not yet a
+formally persisted steady-state power boundary. The current representative
+power aggregation policy therefore remains a validation item.
