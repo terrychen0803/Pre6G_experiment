@@ -229,7 +229,7 @@ class DecisionTests(unittest.TestCase):
             },
         }
 
-    def test_rank_uses_incremental_energy_and_confidence(self):
+    def test_rank_uses_gross_node_energy_and_confidence(self):
         ranked, rejected = rank_nodes(
             {
                 "nodes": [
@@ -243,7 +243,21 @@ class DecisionTests(unittest.TestCase):
         self.assertFalse(rejected)
         self.assertEqual(ranked[0].node, "b")
         self.assertEqual(ranked[0].work_unit, "training_iteration")
-        self.assertAlmostEqual(ranked[0].total_energy_j, 7862.4)
+        self.assertAlmostEqual(ranked[0].total_energy_j, 10233.6)
+
+    def test_idle_power_is_not_required_for_gross_energy_ranking(self):
+        item = self._node("worker-5090", 40, 400, 90)
+        item["power"].pop("idle_power_w")
+
+        ranked, rejected = rank_nodes(
+            {"nodes": [item]},
+            100,
+            work_unit="training_iteration",
+        )
+
+        self.assertFalse(rejected)
+        self.assertEqual(len(ranked), 1)
+        self.assertAlmostEqual(ranked[0].total_energy_j, 1600.0)
 
     def test_rejects_runtime_work_unit_mismatch(self):
         item = self._node("worker-4090", 52, 330, 80)
