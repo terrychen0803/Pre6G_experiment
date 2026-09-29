@@ -216,6 +216,7 @@ target_unit = W
 
 - [系統架構](docs/architecture.md)
 - [完整實驗程序](docs/experiment-procedure.md)
+- [Fresh-system reproducibility checklist](docs/reproducibility-checklist.md)
 - [Generic workload intake](docs/workload-intake.md)
 - [Marker-Free Workload Discovery](docs/marker-free-workload-discovery.md)
 - [模型與工作量處理](docs/model-and-work-estimation.md)
