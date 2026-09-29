@@ -276,7 +276,7 @@ Profile Pod
 
 Profiler 在 report 完成後原子寫 capture.complete。Collector 不以檔案剛出現作為 report-ready 訊號。
 
-Netdata 與 DCGM 都是既有 node monitoring components，不跟單次 Job 啟停。
+Netdata Child/Parent 是持續運作的 node monitoring/history components，不跟單次 Job 啟停；DCGM Exporter 也持續運作，但 `collect_dcgm.py` 的 client-side sampling process 只在單次 Profile Job 的 pre/profile/post window 內啟停。
 
 ## Fixed 120-second formal profiling
 
@@ -291,14 +291,18 @@ activeDeadlineSeconds = 300
 
 ~~~text
 container start
+  -> DCGM pre-roll + record absolute timestamps
   -> nsys/application start
-  -> fixed 120 s profile wall window
-  -> graceful application stop
+  -> configured 120 s profile wall window
+  -> graceful application stop (or natural early exit)
   -> nsys report finalization
   -> capture.complete
   -> SQLite export
   -> marker-free extraction
-  -> period detection
+  -> period detection / runtime features
+  -> post-run Netdata historical query
+  -> Netdata/DCGM alignment + quality gate
+  -> package ProfileResult / small shared artifacts
 ~~~
 
 若 workload 在 120 秒前自然完成：
