@@ -961,3 +961,89 @@ Netdata Child/Parent continuous history
 ~~~
 
 The earlier live-polling path is superseded for production Profile Jobs.
+
+
+### RTX5090 formal Phase 07 120-second Profile Job E2E PASS
+
+The first formal RTX5090 Phase 07 Job completed successfully:
+
+~~~text
+Job                                 pre6g-formal-yolo26-5090-120s-v2
+Task                                yolo26-formal-5090-120s-002
+Status                              Complete (1/1)
+Kubernetes Job duration             4m9s
+Configured Nsight duration          120 s
+Nsight termination policy           --kill=sigterm --stop-on-exit=true
+Trace                               cuda,nvtx,osrt
+Formal workload fixture             YOLO, epochs=30
+~~~
+
+The wrapper records the outer Nsight/workload command boundary, not the exact
+internal capture boundary. For this run:
+
+~~~text
+profile_start_ns                    1790694093333607841
+profile_end_ns                      1790694235024921504
+outer profile-command interval      141.691313663 s
+~~~
+
+The interval is longer than 120 s because it includes Nsight shutdown/report
+finalization. It must not be interpreted as the capture duration itself.
+Likewise, the marker-free detector's `capture_start_ns` / `capture_end_ns`
+describe the selected detector prefix, not the full formal Nsight capture.
+
+Telemetry alignment passed:
+
+~~~text
+netdata_samples                     148
+dcgm_samples                        148
+aligned_samples                     147
+alignment_coverage                  0.9932432432
+median_alignment_delta_ms           109.026266
+max_alignment_delta_ms              109.500122
+max_netdata_gap_s                   1.0
+max_dcgm_gap_s                      1.000438756
+pass                                true
+~~~
+
+Marker-free detection passed without production instrumentation inputs:
+
+~~~text
+accepted                            true
+detected_unit                       execution_cycle
+detector_profile                    yolo-v1
+detected_period_ms                  133.61405375
+confidence                          0.6711229308
+harmonic_corrected                  true
+horizon_seconds                     9
+complete_cycles                     67
+two_window_stability_pass           true
+hardware_trace                      true
+uses_iterations_csv                 false
+uses_nvtx                           false
+uses_callbacks                      false
+uses_epoch_labels                   false
+uses_batch_labels                   false
+~~~
+
+The packaged ProfileResult is:
+
+~~~text
+status                              ready-for-control-side-inference
+device_id                           RTX5090
+node                                mirc516-20250605
+runtime feature count               7
+kernel events in selected prefix    224064
+unique kernels                      81
+~~~
+
+Small runtime/telemetry artifacts were persisted to the shared RWX store under:
+
+~~~text
+results/yolo26-formal-5090-120s-002/mirc516-20250605/
+~~~
+
+This validates the current formal Phase 07 pipeline end to end for the RTX5090
+fixture. A remaining timestamp-contract improvement is to persist an explicit
+formal capture boundary (or equivalent Nsight-derived capture duration) so
+power-window cropping does not use the wider outer command interval.
