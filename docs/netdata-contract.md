@@ -154,6 +154,10 @@ It discovers the currently valid CPU-temperature and app-CPU charts once, then q
 
 `scripts/collect_netdata.py` remains a diagnostic/legacy live-polling utility. It is not the production Profile Job source for Netdata telemetry.
 
+
+Historical app CPU charts are process-group series and may be transient. A chart visible at query time can legitimately have no data in an older dry-run window. The historical extractor therefore skips unavailable app charts individually and fails only when the requested window cannot supply at least three finite app CPU series needed to derive `Top1 CPU%`, `Top2 CPU%`, and `Top3 CPU%`. It records discovered/queried/unavailable chart counts in query metadata.
+
+
 DCGM Exporter is not treated as the historical database for this workflow. `scripts/collect_dcgm.py` actively polls the selected exporter during the experiment and stores each sample.
 
 The DCGM sample timestamp is the midpoint between request start and response end:
