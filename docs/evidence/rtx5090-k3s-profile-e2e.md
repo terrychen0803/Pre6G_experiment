@@ -682,32 +682,33 @@ power inference
 
 Nsight CUDA-event timestamps may remain local to the Nsight report; they do not need to be numerically identical to Unix timestamps used by Netdata/DCGM. The wrapper provides the common wall-clock profile/application boundaries used to associate the telemetry window with the same dry-run.
 
-The repository now includes the executable synchronization pieces:
+The repository synchronization path is now:
 
 ~~~text
-scripts/collect_netdata.py
-  canonical Netdata CPU/system collector
-  UTC Unix-ns request-midpoint timestamps
-  Agent or Parent /host/<hostname> endpoint
-  1 s polling; bounded or signal-terminated
+scripts/query_netdata_window.py
+  queries Netdata Parent history after the run
+  absolute after/before window from timestamps.json
+  preserves Netdata database timestamps
+  emits canonical CPU/system/Top-CPU telemetry
 
 scripts/collect_dcgm.py
-  DCGM device telemetry collector
+  actively polls the selected DCGM exporter during the run
   UTC Unix-ns request-midpoint timestamps
   1 s polling; bounded or signal-terminated
 
 scripts/run_profile_with_telemetry.py
-  starts both collectors
-  enforces a pre-roll
-  records profile_start_ns/profile_end_ns
-  runs the wrapped profiling command
-  enforces a post-roll
-  stops collectors cleanly
-  runs Netdata/DCGM nearest-neighbor alignment
+  records pre/profile/post wall-clock boundaries
+  starts only the DCGM active poller
+  runs the wrapped Nsight/workload command
+  queries Netdata historical data after the run
+  nearest-aligns Netdata/DCGM
   writes alignment-quality.json and aligned-telemetry.csv
+
+scripts/collect_netdata.py
+  retained only as a diagnostic/legacy live-polling utility
 ~~~
 
-The next live-cluster gate is endpoint discovery for the RTX5090 Netdata Parent path and the RTX5090-specific DCGM Exporter Pod endpoint, followed by wrapping the already validated Nsight Profile Job command with this synchronization layer.
+This supersedes the earlier worker-side Netdata live-polling implementation. The next live-cluster gate is validation of the historical Parent query against the same RTX5090 Profile Job window.
 
 ### RTX5090 DCGM collector regression smoke
 
