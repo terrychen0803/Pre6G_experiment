@@ -477,8 +477,10 @@ PASS：
 - .nsys-rep 完整
 - target CUDA process/context 可識別
 - marker-free execution cycle 可偵測
-- Netdata/DCGM 同窗口可收集
-- timestamp quality pass
+- Profile Job 正確記錄 absolute pre/profile/post window
+- run 後可從 Netdata Parent historical database 擷取同窗口 system/CPU telemetry
+- profile window 內 DCGM active polling 可收集 GPU telemetry
+- Netdata historical / DCGM timestamp alignment quality pass
 - graceful/finalization行為可接受
 
 ## Phase 07：Formal 120-second Dry-run
