@@ -493,3 +493,22 @@ results/yolo26-e2e-5090-smoke-002/iccl-s3-251230/
 The detector artifact reports `hardware_trace=false`. In the current implementation this flag only reflects whether a specific Nsight diagnostic string (`Hardware tracing used for CUDA tracing`) appears in `DIAGNOSTIC_EVENT`; it is not a required detector gate. The required CUDA kernel table, target process/context, stable recurring period, confidence, and complete-cycle gates all passed.
 
 The next multi-node runtime gate is a **device-matched RTX4090 frozen runtime model**. The existing RTX5090 bundle must not be reused on RTX4090.
+
+### Historical RTX4090 trace compatibility smoke
+
+The retained RTX4090 C03 `nsys_trace_01/profile.nsys-rep` was exported successfully with Nsight Systems 2026.4.1 and reprocessed by the current `yolo-v1` marker-free detector.
+
+~~~text
+baseline median target              34.53236780555556 ms
+detected_period_ms                  48.77648
+confidence                          0.9836988713
+complete_cycles                     143
+horizon_seconds                     7
+selection_reason                    latest accepted fallback
+two_window_stability_pass           false
+harmonic_corrected                  false
+~~~
+
+The current seven-feature runtime schema was emitted successfully and all forbidden production inputs remained false. This establishes **schema/data compatibility** for historical RTX4090 traces, but the C03 historical trace does not satisfy the stricter two-window-stability gate because only one deployment horizon was ultimately selected. The historical batch builder therefore records this quality field explicitly rather than silently treating it as equivalent to the current K3s Profile Job evidence.
+
+`scripts/build_historical_runtime_samples.py` batch-reprocesses C01-C24 one workload at a time, deletes temporary SQLite exports by default, preserves marker-free detection/runtime-feature artifacts, joins only the baseline `steady_window_mean_iter_ms` median as a training label, and writes quality/failure summaries for model-development review.
