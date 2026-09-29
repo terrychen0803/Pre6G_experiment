@@ -137,21 +137,38 @@ Validated source ownership：
 
 ~~~text
 Netdata Parent/Child
-  CPU User/System/IOWait
-  Load 1/5/15
-  Memory Used/Free
-  CPU temperature
-  Top1/Top2/Top3 CPU
+  continuous system/CPU/memory/temp/process-CPU monitoring
+  historical query after the dry-run by absolute time window
 
 NVIDIA DCGM Exporter
-  GPU Util
-  GPU framebuffer used
-  GPU temperature
-  GPU power
+  active profile-window polling
+  GPU Util / framebuffer used / temperature / power
 
 Nsight Systems 2026
   target-process CUDA trace
 ~~~
+
+Formal Profile Job telemetry flow：
+
+~~~text
+Netdata child -> Parent continuously stores history
+                     |
+Profile Job records pre/profile/post Unix-ns boundaries
+                     |
+        Nsight workload + DCGM active polling
+                     |
+                     v
+scripts/query_netdata_window.py
+  -> Parent /host/<node>/api/v1/data
+  -> historical netdata.csv
+                     |
+              netdata.csv + dcgm.csv
+                     |
+                     v
+             align_telemetry.py
+~~~
+
+The formal Profile Job does not poll Netdata `/allmetrics` every second. `scripts/collect_netdata.py` is retained only as a diagnostic/legacy live-polling utility.
 
 DCGM exporter-side collection interval：
 
@@ -343,6 +360,7 @@ Synthetic values only validate control flow.
 
 ~~~bash
 python scripts/audit_netdata.py --help
+python scripts/query_netdata_window.py --help
 python scripts/collect_dcgm.py --help
 python scripts/align_telemetry.py --help
 ~~~
