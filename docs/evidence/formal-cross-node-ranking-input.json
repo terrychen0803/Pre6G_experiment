@@ -1,0 +1,40 @@
+{
+  "schema_version": "pre6g.provisional-ranking-input/v1",
+  "task_id": "yolo26-formal-cross-node-ranking-001",
+  "ranking_mode": "research-provisional-model-output",
+  "work_unit": "training_iteration",
+  "total_work_units": 960,
+  "energy_objective": "steady-gross-node-energy",
+  "candidates": [
+    {
+      "node": "iccl-s3-251230",
+      "device_id": "RTX4090",
+      "runtime": {
+        "model_id": "RTX4090_yolo_trace_only_v1",
+        "predicted_runtime_ms_per_work_unit": 63.320823290313726
+      },
+      "power": {
+        "model_id": "pdu1-outlet1-20260416-20260612",
+        "predicted_node_total_steady_power_w": 354.3231773345533,
+        "status": "validation_required",
+        "ood": true,
+        "ood_detail": "GPU Mem Used(MB), 109/109 rows"
+      }
+    },
+    {
+      "node": "mirc516-20250605",
+      "device_id": "RTX5090",
+      "runtime": {
+        "model_id": "RTX5090_yolo_trace_only_v1",
+        "predicted_runtime_ms_per_work_unit": 128.7727655060272
+      },
+      "power": {
+        "model_id": "pdu1-outlet7-rtx5090-20260416-20260612",
+        "predicted_node_total_steady_power_w": 462.28196331549725,
+        "status": "validation_required",
+        "ood": true,
+        "ood_detail": "GPU Power(W) exceeds recorded range in part of the window"
+      }
+    }
+  ]
+}
