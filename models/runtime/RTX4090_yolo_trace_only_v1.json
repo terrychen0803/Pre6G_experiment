@@ -1,0 +1,87 @@
+{
+  "schema_version": "pre6g.runtime-model/v1",
+  "model_id": "RTX4090_yolo_trace_only_v1",
+  "model_type": "ridge_log_runtime",
+  "role": "deployment-smoke",
+  "device_id": "RTX4090",
+  "workload_family": "YOLO26",
+  "detector_profile": "yolo-v1",
+  "detected_unit": "execution_cycle",
+  "target": "unprofiled_runtime_ms_per_execution_unit",
+  "target_transform": "log",
+  "feature_names": [
+    "log_detected_period_ms",
+    "log_kernel_event_rate_hz",
+    "log_unique_kernel_count",
+    "log_median_kernel_duration_us",
+    "log_mean_kernel_duration_us",
+    "log_kernel_busy_fraction",
+    "anchor_robust_cv"
+  ],
+  "preprocessing": {
+    "type": "standardize",
+    "means": [
+      4.086840378364582,
+      10.8378645533052,
+      4.437618244172908,
+      0.15397503691358094,
+      1.3486567554484628,
+      -1.6289892492106128,
+      0.015850660660110916
+    ],
+    "scales": [
+      0.2717206782907024,
+      0.4560748602801193,
+      0.14422698668875808,
+      0.05138613824130214,
+      0.6349442601025749,
+      0.7196088931665947,
+      0.01101316576811336
+    ]
+  },
+  "model": {
+    "alpha": 1.0,
+    "intercept": 3.828708094594653,
+    "coefficients": [
+      0.19145924373026305,
+      -0.07488341498672586,
+      0.012848693004803409,
+      0.009549160594242052,
+      0.11583124947472051,
+      0.05474354797612855,
+      -0.00866938837668865
+    ]
+  },
+  "training": {
+    "samples": 24,
+    "workloads": 24,
+    "conditions": [
+      "historical-clean"
+    ],
+    "source_mode": "accepted-historical",
+    "two_window_stable_samples": 15,
+    "fallback_samples": 9,
+    "alpha_policy": "selected by leave-one-workload-out MAPE from fixed candidates [0.01, 0.1, 1.0, 10.0, 100.0]",
+    "source_builder": "scripts/build_historical_runtime_samples.py",
+    "source_note": "Reprocessed retained RTX4090 C01-C24 nsys_trace_01 reports with Nsight Systems 2026.4.1 and the current yolo-v1 marker-free detector; baseline target is the median steady_window_mean_iter_ms over three unprofiled repeats."
+  },
+  "validation_reference": {
+    "evaluation": "leave-one-workload-out on historical accepted samples",
+    "mape_percent": 4.617549595299628,
+    "median_ape_percent": 4.259854269779984,
+    "p90_ape_percent": 8.938541850390736,
+    "max_ape_percent": 14.026989789607509,
+    "mae_ms": 2.04147120630569,
+    "rmse_ms": 2.414193080764603,
+    "bias_ms": -0.07543596721533108
+  },
+  "limitations": [
+    "RTX4090 only",
+    "YOLO26 validation workload family",
+    "historical clean-condition traces only",
+    "trace-only deployment-smoke model",
+    "training set includes 9 accepted fallback detector samples and 15 two-window-stable samples",
+    "current K3s samples may be out of the historical feature distribution",
+    "not a generic cross-workload production model"
+  ]
+}
