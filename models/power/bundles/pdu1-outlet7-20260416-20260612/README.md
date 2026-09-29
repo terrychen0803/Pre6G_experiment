@@ -53,13 +53,29 @@ The node/GPU association is recorded. The model owner confirmed that
 whole-node wall power rather than NVIDIA GPU power, so the target is recorded
 as `node-total-power`.
 
-The bundle remains `validation_required` because idle power, held-out
+The bundle remains `validation_required` because held-out
 validation metrics, missing-value policy, and a formal OOD policy are not yet
 frozen. It is therefore not yet eligible for automatic energy ranking.
 
 The original Notebook is retained for provenance. Its sample-data JSON was not
 supplied, several comments are encoding-damaged, and its plot title mistakenly
 names Outlet1 instead of Outlet7.
+
+
+## Energy objective
+
+The current Pre6G scheduling objective uses this model's whole-node wall-power
+prediction directly when estimating gross node energy over the predicted task
+runtime:
+
+~~~text
+E_predicted_steady_gross = P_predicted_node_steady × T_predicted_steady
+~~~
+
+An idle-power baseline is not required for this primary metric. If a future
+study estimates task-incremental energy on a loaded node, it must use a
+separately validated background-only counterfactual rather than assuming
+machine idle power is the correct baseline.
 
 ## Artifact integrity
 
