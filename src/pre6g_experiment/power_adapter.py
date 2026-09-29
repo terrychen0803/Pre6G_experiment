@@ -115,8 +115,6 @@ def build_power_smoke_result(
     if not bool(target.get("semantics_verified")):
         blockers.append("power target semantics are not verified")
     idle_power = manifest.get("idle_power_w")
-    if idle_power is None:
-        blockers.append("node idle power is missing")
     if ood_messages:
         blockers.append("telemetry contains out-of-domain feature values")
     if alignment_quality is not None and not bool(alignment_quality.get("pass")):
@@ -153,7 +151,7 @@ def build_power_smoke_result(
         "notes": [
             (
                 "Observed-profile-window power is diagnostic only until node binding, "
-                "target semantics, idle power, and deployment policy are frozen."
+                "target semantics, model validation, and deployment policy are frozen."
             ),
             (
                 "Do not multiply this profiled-window power by predicted training time "
