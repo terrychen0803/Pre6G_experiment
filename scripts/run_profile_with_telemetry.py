@@ -88,6 +88,19 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--accept-command-returncode",
+        type=int,
+        action="append",
+        default=[],
+        help=(
+            "Explicitly accept a non-zero wrapped-command return code. "
+            "Repeat this option for multiple codes. This is intended for "
+            "known profiler termination semantics such as Nsight "
+            "--duration with --kill=sigterm returning 143; non-zero codes "
+            "remain failures unless explicitly listed."
+        ),
+    )
+    parser.add_argument(
         "command",
         nargs=argparse.REMAINDER,
         help="Command to run after --.",
@@ -289,12 +302,22 @@ def main() -> None:
         and quality_json.is_file()
     )
 
+    accepted_command_returncodes = sorted(
+        set(int(value) for value in args.accept_command_returncode)
+    )
+    command_returncode_accepted = (
+        command_returncode == 0
+        or command_returncode in accepted_command_returncodes
+    )
+
     result = {
         "schema_version": "pre6g.profile-telemetry-window/v2",
         "node": args.node,
         "gpu_uuid": args.gpu_uuid,
         "command": command,
         "command_returncode": command_returncode,
+        "accepted_command_returncodes": accepted_command_returncodes,
+        "command_returncode_accepted": command_returncode_accepted,
         "telemetry": {
             "netdata_mode": "historical-query",
             "netdata_query_returncode": netdata_query_returncode,
@@ -317,8 +340,8 @@ def main() -> None:
     }
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
-    if command_returncode:
-        raise SystemExit(command_returncode)
+    if not command_returncode_accepted:
+        raise SystemExit(command_returncode if command_returncode is not None else 1)
 
     if args.require_alignment_pass and not telemetry_ready:
         raise SystemExit(1)
