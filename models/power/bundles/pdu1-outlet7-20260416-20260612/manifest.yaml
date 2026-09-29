@@ -42,4 +42,4 @@ preprocessing:
 
 known_gaps:
   - Original sample-data JSON was not supplied.
-  - Idle power, held-out metrics, missing-value policy, and formal OOD policy are unknown.
+  - Held-out metrics, missing-value policy, and formal OOD policy are unknown.
