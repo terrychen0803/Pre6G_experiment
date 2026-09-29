@@ -1,0 +1,16 @@
+[
+  {
+    "GPU Mem Used(MB)": 4096,
+    "CPU User%": 25.0,
+    "GPU Power(W)": 180.0,
+    "GPU Temp(°C)": 55.0,
+    "CPU Temp(°C)": 60.0
+  },
+  {
+    "GPU Mem Used(MB)": 6144,
+    "CPU User%": 42.0,
+    "GPU Power(W)": 245.0,
+    "GPU Temp(°C)": 63.0,
+    "CPU Temp(°C)": 70.0
+  }
+]

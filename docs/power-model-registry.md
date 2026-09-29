@@ -46,6 +46,11 @@ models/power/
 
 Model binaries, scalers, and other large artifacts should live in the configured artifact/model store and be referenced by immutable URI plus checksum.
 
+Small research artifacts may be checked in under `models/power/bundles/` for
+reproducibility before registration. Such a bundle must remain outside
+`registry.yaml` and carry a non-ready status until its node/GPU binding, target
+semantics, validation results, and deployment policy satisfy this contract.
+
 ## Manifest contract
 
 A production-ready power model must declare at least:

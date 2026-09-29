@@ -552,3 +552,33 @@ schemas/semantic-runtime.schema.json
 ~~~
 
 YOLO mounted-dataset discovery uses application-visible `data=...` plus original `epochs` / `batch`; it does not inspect iteration timestamps, NVTX, callbacks, or `iterations.csv`.
+
+## PDU1 Outlet1 power-model bundle
+
+The repository includes the supplied ONNX power model and its exact Min-Max
+scaler as a reproducible, standalone bundle:
+
+```text
+models/power/bundles/pdu1-outlet1-20260416-20260612/
+```
+
+Run a smoke prediction with:
+
+```bash
+python -m pip install -r requirements-power-model.txt
+python scripts/predict_power_eq.py \
+  examples/power/pdu1-outlet1-sample.json \
+  --output generated/pdu1-outlet1-predictions.json \
+  --reject-ood
+```
+
+The adapter accepts JSON or CSV telemetry and adds `PREDICTED_POWER_W` to each
+record. See the [bundle documentation](models/power/bundles/pdu1-outlet1-20260416-20260612/README.md)
+for the five-feature schema, normalization, artifact checksums, and known
+validation gaps.
+
+The bundle is intentionally marked `validation_required` and is not listed in
+`models/power/registry.yaml`: the supplied artifacts do not identify their
+Kubernetes node or physical GPU UUID, and outlet-power semantics have not yet
+been confirmed as compatible with the project's `node-total-power` ranking
+contract.

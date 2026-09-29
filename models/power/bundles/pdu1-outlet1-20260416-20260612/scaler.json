@@ -1,0 +1,36 @@
+{
+    "y_min": 0.0,
+    "y_data_range": 516.72,
+    "x_mins": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+    ],
+    "x_data_ranges": [
+        7793.0,
+        54.4,
+        300.3,
+        66.0,
+        96.0
+    ],
+    "feature_cols": [
+        "GPU Mem Used(MB)",
+        "CPU User%",
+        "GPU Power(W)",
+        "GPU Temp(°C)",
+        "CPU Temp(°C)"
+    ],
+    "core_indices": [
+        "CPU User%"
+    ],
+    "direct_indices": [
+        "GPU Power(W)"
+    ],
+    "other_indices": [
+        "GPU Mem Used(MB)",
+        "GPU Temp(°C)",
+        "CPU Temp(°C)"
+    ]
+}
