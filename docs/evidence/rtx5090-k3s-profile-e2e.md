@@ -1156,3 +1156,28 @@ Automatic ranking remains disabled until the bundle's validation/OOD policy and
 idle-power baseline are resolved. The 120-second profiling-window energy is
 diagnostic only; scheduling energy must combine predicted workload runtime with
 a comparable predicted incremental power contract.
+
+
+### RTX5090 formal runtime inference
+
+The frozen RTX5090 trace-only runtime model was run on the runtime features
+emitted by the formal 120-second Profile Job:
+
+~~~text
+model_id                         RTX5090_yolo_trace_only_v1
+model_role                       deployment-smoke
+detected_unit                    execution_cycle
+predicted_runtime_ms             128.7727655060272
+detected_period_ms               133.61405375
+detector_confidence              0.6711229307546983
+feature_count                    7
+~~~
+
+The predicted runtime is the frozen-model estimate per `execution_cycle`.
+The detector period is an observed marker-free trace quantity and must not be
+used as prediction ground truth or substituted for the model output.
+
+This result is not yet a whole-job runtime. It must first be combined with
+static total-work discovery and the validated YOLO/yolo-v1 semantic binding.
+The current model remains a deployment-smoke model rather than a held-out
+production-accuracy claim.
