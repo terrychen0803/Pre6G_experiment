@@ -87,6 +87,12 @@ def decide_command(args: argparse.Namespace) -> int:
         "rejected": rejected,
         "production_job": str(args.output),
     }
+    if args.report is not None:
+        args.report.parent.mkdir(parents=True, exist_ok=True)
+        args.report.write_text(
+            json.dumps(report, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0
 
@@ -109,6 +115,11 @@ def parser() -> argparse.ArgumentParser:
     decide_parser.add_argument("--job", type=Path, required=True)
     decide_parser.add_argument("--results", type=Path, required=True)
     decide_parser.add_argument("--output", type=Path, required=True)
+    decide_parser.add_argument(
+        "--report",
+        type=Path,
+        help="Optional path for the JSON decision report.",
+    )
     decide_parser.add_argument("--min-confidence", type=float, default=0.8)
     decide_parser.add_argument(
         "--min-ready-nodes",

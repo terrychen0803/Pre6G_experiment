@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pre6G 實驗控制台</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --ink: light-dark(#17211d, #eef6f2);
+      --muted: light-dark(#607068, #9fb0a8);
+      --page: light-dark(#f3f6f3, #111714);
+      --surface: light-dark(#ffffff, #19211d);
+      --surface-2: light-dark(#eaf0ec, #222d27);
+      --line: light-dark(#d7dfda, #33423a);
+      --green: light-dark(#16784b, #5fd29a);
+      --green-soft: light-dark(#e1f4e9, #183d2b);
+      --amber: light-dark(#9a6100, #f4be55);
+      --amber-soft: light-dark(#fff0cf, #493718);
+      --red: light-dark(#b23b3b, #ff8d8d);
+      --blue: light-dark(#315fa8, #8eb8ff);
+      --shadow: 0 12px 32px light-dark(rgba(33, 51, 42, .08), rgba(0, 0, 0, .20));
+      --radius: 18px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--page);
+      color: var(--ink);
+      font-family: Inter, "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
+      line-height: 1.5;
+    }
+    button { font: inherit; }
+    .app { min-height: 100vh; }
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      padding: 18px clamp(20px, 4vw, 56px);
+      background: var(--surface);
+      border-bottom: 1px solid var(--line);
+    }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .brand-mark {
+      display: grid;
+      place-items: center;
+      width: 38px;
+      height: 38px;
+      border-radius: 12px;
+      color: light-dark(#fff, #10231a);
+      background: var(--green);
+      font-weight: 800;
+      letter-spacing: -.04em;
+    }
+    .brand strong { display: block; font-size: 15px; }
+    .brand small, .muted { color: var(--muted); }
+    .snapshot {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .pulse { width: 9px; height: 9px; border-radius: 50%; background: var(--green); }
+    .shell {
+      display: grid;
+      grid-template-columns: 220px minmax(0, 1fr);
+      gap: 0;
+      max-width: 1500px;
+      margin: 0 auto;
+    }
+    aside { padding: 30px 20px 30px clamp(20px, 3vw, 40px); }
+    .nav-label {
+      margin: 0 12px 10px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .nav { display: grid; gap: 6px; }
+    .nav button {
+      width: 100%;
+      border: 0;
+      border-radius: 10px;
+      background: transparent;
+      color: var(--muted);
+      padding: 10px 12px;
+      text-align: left;
+    }
+    .nav button:hover, .nav button[aria-selected="true"] {
+      background: var(--surface-2);
+      color: var(--ink);
+    }
+    main { min-width: 0; padding: 32px clamp(20px, 4vw, 56px) 56px; }
+    .hero { display: flex; justify-content: space-between; gap: 24px; align-items: end; margin-bottom: 24px; }
+    h1 { margin: 0 0 8px; font-size: clamp(28px, 4vw, 42px); line-height: 1.12; letter-spacing: -.035em; }
+    .hero p { margin: 0; color: var(--muted); max-width: 750px; }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .ok { color: var(--green); background: var(--green-soft); }
+    .warn { color: var(--amber); background: var(--amber-soft); }
+    .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin: 24px 0; }
+    .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+    .metric { padding: 18px; }
+    .metric .label { color: var(--muted); font-size: 13px; }
+    .metric .value { margin-top: 7px; font-size: 28px; font-weight: 750; letter-spacing: -.035em; }
+    .metric .detail { margin-top: 4px; color: var(--muted); font-size: 12px; }
+    .section { margin-top: 28px; }
+    .section-head { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 12px; }
+    h2 { margin: 0; font-size: 18px; letter-spacing: -.015em; }
+    .flow { display: grid; grid-template-columns: repeat(6, minmax(110px, 1fr)); gap: 10px; padding: 18px; overflow-x: auto; }
+    .flow-step { position: relative; min-width: 110px; padding: 14px; border-radius: 13px; background: var(--surface-2); }
+    .flow-step:not(:last-child)::after { content: "→"; position: absolute; right: -9px; top: 50%; color: var(--muted); z-index: 1; }
+    .step-no { color: var(--green); font-size: 12px; font-weight: 800; }
+    .flow-step strong { display: block; margin-top: 5px; font-size: 13px; }
+    .flow-step small { display: block; margin-top: 5px; color: var(--muted); font-size: 11px; }
+    .two-col { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(280px, .65fr); gap: 16px; }
+    .panel { padding: 20px; }
+    .run-header { display: flex; justify-content: space-between; gap: 16px; align-items: start; }
+    .run-title { font-weight: 750; }
+    .run-subtitle { color: var(--muted); font-size: 13px; }
+    .stage-list { display: grid; gap: 0; margin-top: 16px; }
+    .stage-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 11px 0; border-top: 1px solid var(--line); }
+    .stage-state { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--green-soft); color: var(--green); font-size: 12px; font-weight: 800; }
+    .stage-name { font-size: 13px; }
+    .stage-meta { color: var(--muted); font-size: 12px; }
+    .gate { padding: 14px 0; border-top: 1px solid var(--line); }
+    .gate:first-of-type { margin-top: 12px; }
+    .gate-line { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
+    .track { height: 7px; margin-top: 9px; overflow: hidden; border-radius: 99px; background: var(--surface-2); }
+    .fill { height: 100%; border-radius: inherit; background: var(--green); }
+    .fill.amber { background: var(--amber); }
+    .evidence-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+    .evidence { padding: 18px; }
+    .evidence-top { display: flex; justify-content: space-between; gap: 12px; align-items: start; }
+    .evidence h3 { margin: 0; font-size: 15px; }
+    .big-number { margin: 20px 0 2px; font-size: 32px; font-weight: 800; letter-spacing: -.04em; }
+    .unit { color: var(--muted); font-size: 12px; }
+    .compare { margin-top: 15px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+    .finding { display: flex; gap: 12px; padding: 14px 0; border-top: 1px solid var(--line); }
+    .finding:first-of-type { margin-top: 10px; }
+    .finding-mark { flex: 0 0 10px; width: 10px; height: 10px; margin-top: 5px; border-radius: 50%; background: var(--green); }
+    .finding-mark.pending { background: var(--amber); }
+    .finding strong { display: block; font-size: 13px; }
+    .finding p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+    [data-view] { display: none; }
+    [data-view].active { display: block; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { padding: 13px 10px; border-bottom: 1px solid var(--line); text-align: left; }
+    th { color: var(--muted); font-size: 12px; }
+    td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+    @media (max-width: 1000px) {
+      .shell { grid-template-columns: 1fr; }
+      aside { padding: 16px 20px 0; }
+      .nav-label { display: none; }
+      .nav { display: flex; overflow-x: auto; }
+      .nav button { width: auto; white-space: nowrap; }
+      .metric-grid { grid-template-columns: repeat(2, 1fr); }
+      .two-col { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 680px) {
+      .snapshot { display: none; }
+      .hero { display: block; }
+      .hero .badge { margin-top: 14px; }
+      .metric-grid, .evidence-grid { grid-template-columns: 1fr; }
+      .flow { grid-template-columns: repeat(6, 150px); }
+      main { padding-top: 24px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">P6</div>
+        <div><strong>Pre6G Experiment</strong><small>Energy-aware GPU placement</small></div>
+      </div>
+      <div class="snapshot"><span class="pulse"></span>專案證據快照 · 非即時監控</div>
+    </header>
+
+    <div class="shell">
+      <aside>
+        <p class="nav-label">實驗結果</p>
+        <nav class="nav" aria-label="結果頁面">
+          <button type="button" aria-selected="true" data-target="overview">總覽</button>
+          <button type="button" aria-selected="false" data-target="runtime">Runtime 實驗</button>
+          <button type="button" aria-selected="false" data-target="power">Power 與限制</button>
+        </nav>
+      </aside>
+
+      <main>
+        <section data-view="overview" class="active">
+          <div class="hero">
+            <div>
+              <h1>從一份 Job，產生可比較的節點證據</h1>
+              <p>平台保留使用者原始 workload，短暫在候選 GPU 節點執行 marker-free profiling，再以 runtime、power 與遙測品質 gate 決定是否能自動配置。</p>
+            </div>
+            <span class="badge warn">● MVP · 部分 gate 尚未完成</span>
+          </div>
+
+          <div class="metric-grid">
+            <article class="card metric"><div class="label">RTX5090 Profile Job</div><div class="value">118</div><div class="detail">完整 execution cycles</div></article>
+            <article class="card metric"><div class="label">Detector confidence</div><div class="value">0.730</div><div class="detail">two-window stability</div></article>
+            <article class="card metric"><div class="label">預測 steady runtime</div><div class="value">14.80 s</div><div class="detail">128 training iterations</div></article>
+            <article class="card metric"><div class="label">Telemetry alignment</div><div class="value">100%</div><div class="detail">20 / 20 samples</div></article>
+          </div>
+
+          <section class="section">
+            <div class="section-head"><h2>使用者實際會走的流程</h2><span class="muted">自動化 pipeline</span></div>
+            <div class="card flow" aria-label="Pre6G 六階段流程">
+              <div class="flow-step"><span class="step-no">01</span><strong>提交 Kubernetes Job</strong><small>保留 image、argv、資源與 volume</small></div>
+              <div class="flow-step"><span class="step-no">02</span><strong>辨識總工作量</strong><small>argv、config 與 mounted dataset</small></div>
+              <div class="flow-step"><span class="step-no">03</span><strong>候選節點 Profile</strong><small>target-process Nsight CUDA trace</small></div>
+              <div class="flow-step"><span class="step-no">04</span><strong>Runtime / Power</strong><small>模型推論與遙測品質 gate</small></div>
+              <div class="flow-step"><span class="step-no">05</span><strong>能耗排序</strong><small>只比較通過 gate 的節點</small></div>
+              <div class="flow-step"><span class="step-no">06</span><strong>建立 Production Job</strong><small>注入選定 hostname，不重寫 workload</small></div>
+            </div>
+          </section>
+
+          <section class="section two-col">
+            <article class="card panel">
+              <div class="run-header"><div><div class="run-title">yolo26-e2e-5090-smoke-002</div><div class="run-subtitle">RTX5090 · Kubernetes Profile Job · NFS RWX artifact handoff</div></div><span class="badge ok">Profile 完成</span></div>
+              <div class="stage-list">
+                <div class="stage-row"><span class="stage-state">✓</span><span class="stage-name">Work discovery</span><span class="stage-meta">128 units</span></div>
+                <div class="stage-row"><span class="stage-state">✓</span><span class="stage-name">Marker-free cycle detection</span><span class="stage-meta">126.855 ms</span></div>
+                <div class="stage-row"><span class="stage-state">✓</span><span class="stage-name">Runtime feature artifact</span><span class="stage-meta">7 features</span></div>
+                <div class="stage-row"><span class="stage-state">✓</span><span class="stage-name">Frozen runtime inference</span><span class="stage-meta">115.608 ms / unit</span></div>
+                <div class="stage-row"><span class="stage-state">!</span><span class="stage-name">Production node ranking</span><span class="stage-meta">blocked by power validation</span></div>
+              </div>
+            </article>
+
+            <article class="card panel">
+              <h2>Production readiness</h2>
+              <div class="gate"><div class="gate-line"><span>Marker-free runtime</span><strong>已驗證</strong></div><div class="track"><div class="fill" style="width:100%"></div></div></div>
+              <div class="gate"><div class="gate-line"><span>共享 artifact handoff</span><strong>已驗證</strong></div><div class="track"><div class="fill" style="width:100%"></div></div></div>
+              <div class="gate"><div class="gate-line"><span>Power model binding</span><strong>待確認</strong></div><div class="track"><div class="fill amber" style="width:45%"></div></div></div>
+              <div class="gate"><div class="gate-line"><span>自動節點排序</span><strong>尚未開放</strong></div><div class="track"><div class="fill amber" style="width:30%"></div></div></div>
+            </article>
+          </section>
+        </section>
+
+        <section data-view="runtime">
+          <div class="hero"><div><h1>Runtime 實驗證據</h1><p>Detector 與 predictor 是兩個不同階段：前者找 recurring execution cycle，後者估計未 profiling 時的 steady-state runtime。</p></div><span class="badge ok">Trace path 可重現</span></div>
+          <div class="evidence-grid">
+            <article class="card evidence"><div class="evidence-top"><h3>Clean RTX5090 detector</h3><span class="badge ok">24 / 24</span></div><div class="big-number">0.33%</div><div class="unit">prefix mean APE</div><div class="compare">Mean emission horizon 9.38 s · max APE 1.15%</div></article>
+            <article class="card evidence"><div class="evidence-top"><h3>High-load RTX5090 detector</h3><span class="badge ok">24 / 24</span></div><div class="big-number">1.47%</div><div class="unit">prefix mean APE</div><div class="compare">Mean emission horizon 13.54 s · P90 APE 3.72%</div></article>
+            <article class="card evidence"><div class="evidence-top"><h3>High-load runtime model</h3><span class="badge warn">reference</span></div><div class="big-number">7.42%</div><div class="unit">runtime MAPE</div><div class="compare">79.2% samples within 10% · max APE 17.50%</div></article>
+          </div>
+          <section class="section card panel">
+            <div class="section-head"><h2>模型與測試完成度</h2><span class="muted">目前 repository evidence</span></div>
+            <div class="table-wrap"><table><thead><tr><th>實驗</th><th>資料／條件</th><th class="num">結果</th><th>判讀</th></tr></thead><tbody>
+              <tr><td>RTX4090 trace-only</td><td>24 clean historical workloads</td><td class="num">LOOW MAPE 4.62%</td><td><span class="badge warn">deployment smoke</span></td></tr>
+              <tr><td>RTX5090 clean detector</td><td>24 workloads</td><td class="num">100% coverage</td><td><span class="badge ok">validated reference</span></td></tr>
+              <tr><td>RTX5090 high-load detector</td><td>24 profiles</td><td class="num">P90 APE 3.72%</td><td><span class="badge ok">validated reference</span></td></tr>
+              <tr><td>Clean → high-load transfer</td><td>strict transfer</td><td class="num">MAPE 68.70%</td><td><span class="badge warn">不可直接泛化</span></td></tr>
+              <tr><td>K3s Profile Job E2E</td><td>RTX5090 C03 smoke</td><td class="num">115.608 ms</td><td><span class="badge ok">artifact handoff pass</span></td></tr>
+            </tbody></table></div>
+          </section>
+        </section>
+
+        <section data-view="power">
+          <div class="hero"><div><h1>Power、Energy 與安全限制</h1><p>兩個 ONNX bundle 已能執行推論，但目前不能用來宣稱 production energy ranking，因為 target semantics、idle baseline 與實體綁定仍未完整驗證。</p></div><span class="badge warn">validation_required</span></div>
+          <section class="two-col">
+            <article class="card panel">
+              <h2>目前已完成</h2>
+              <div class="finding"><span class="finding-mark"></span><div><strong>兩個 node-specific ONNX bundle 已納入 registry</strong><p>Outlet1 對應 RTX4090，Outlet7 對應 RTX5090，包含 scaler、manifest 與 smoke input。</p></div></div>
+              <div class="finding"><span class="finding-mark"></span><div><strong>Netdata 與 DCGM 可依 timestamp 對齊</strong><p>品質 gate：coverage ≥ 90%、最大差值 ≤ 750 ms、source gap ≤ 2 s。</p></div></div>
+              <div class="finding"><span class="finding-mark"></span><div><strong>可輸出逐筆 predicted power series</strong><p>推論 adapter 支援缺欄位與 OOD fail-closed，不會靜默補零。</p></div></div>
+            </article>
+            <article class="card panel">
+              <h2>阻擋自動排程的項目</h2>
+              <div class="finding"><span class="finding-mark pending"></span><div><strong>確認 PDU outlet target semantics</strong><p>必須證實能跨節點比較為 node-total wall power。</p></div></div>
+              <div class="finding"><span class="finding-mark pending"></span><div><strong>補齊 physical GPU UUID 與 node binding</strong><p>避免模型套用到錯誤實體設備。</p></div></div>
+              <div class="finding"><span class="finding-mark pending"></span><div><strong>量測 idle power 與 held-out accuracy</strong><p>ranking 使用 incremental power，需要可靠 idle baseline。</p></div></div>
+              <div class="finding"><span class="finding-mark pending"></span><div><strong>補 RTX4090 high-load paired dataset</strong><p>現有 RTX4090 模型只涵蓋 clean historical traces。</p></div></div>
+            </article>
+          </section>
+        </section>
+      </main>
+    </div>
+  </div>
+  <script>
+    const buttons = [...document.querySelectorAll('[data-target]')];
+    const views = [...document.querySelectorAll('[data-view]')];
+    buttons.forEach((button) => {
+      button.addEventListener('click', () => {
+        buttons.forEach((item) => item.setAttribute('aria-selected', String(item === button)));
+        views.forEach((view) => view.classList.toggle('active', view.dataset.view === button.dataset.target));
+      });
+    });
+  </script>
+</body>
+</html>

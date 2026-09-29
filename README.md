@@ -214,6 +214,7 @@ target_unit = W
 
 ## Documentation
 
+- [專案流程與實驗盤點](docs/project-assessment-zh.md)
 - [系統架構](docs/architecture.md)
 - [完整實驗程序](docs/experiment-procedure.md)
 - [Fresh-system reproducibility checklist](docs/reproducibility-checklist.md)
@@ -368,6 +369,29 @@ python scripts/query_netdata_window.py --help
 python scripts/collect_dcgm.py --help
 python scripts/align_telemetry.py --help
 ~~~
+
+## Unified experiment runner and result dashboard
+
+The previously separate experiment commands can now be executed as one
+resumable workflow. Every run writes stage logs and a machine-readable
+`run-summary.json` even when a stage fails.
+
+~~~bash
+PYTHONPATH=src python scripts/run_experiment_pipeline.py \
+  --mode demo \
+  --job examples/yolo26/user-job.yaml \
+  --output-dir generated/demo
+~~~
+
+Use `--mode profile` with an Nsight SQLite, node/device identity, and frozen
+runtime model to run marker-free detection through steady-runtime aggregation.
+Aligned telemetry and a power bundle can be added as an optional power stage.
+See [Unified experiment workflow](docs/unified-workflow.md) for the full command
+and the current automation boundary.
+
+Open [`dashboard/index.html`](dashboard/index.html) for a static end-user view
+of the current workflow, validated experiment evidence, and remaining
+production gates. It is an evidence snapshot, not a live cluster dashboard.
 
 ## Repository 邊界
 
