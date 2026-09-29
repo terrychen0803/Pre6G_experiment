@@ -107,3 +107,35 @@ kubernetes.io/hostname: iccl-s3-251230
 The production Job must not contain Nsight, profiling collectors, or a dry-run
 timeout. Its ground truth is collected only for post-decision evaluation and is
 not fed back into the production prediction path.
+
+
+## Final ranking test result
+
+The provisional cross-node ranking script completed successfully with the
+current frozen runtime predictions and node-bound power-model outputs.
+
+~~~text
+ranking_mode = research-provisional-model-output
+selected_node = iccl-s3-251230
+selected_device = RTX4090
+selected_energy_kj = 21.538593887677195
+energy_reduction_vs_runner_up_percent = 62.31095414106675
+~~~
+
+Final ordering:
+
+~~~text
+Rank 1: iccl-s3-251230 (RTX4090)
+        runtime = 60.788 s
+        power   = 354.323 W
+        energy  = 21.539 kJ
+
+Rank 2: mirc516-20250605 (RTX5090)
+        runtime = 123.622 s
+        power   = 462.282 W
+        energy  = 57.148 kJ
+~~~
+
+This completes the current requested workflow through the
+`RANKED -> NODE_SELECTED` stage. Production-job execution and ground-truth
+validation are intentionally deferred.
