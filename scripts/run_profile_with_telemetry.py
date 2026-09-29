@@ -72,6 +72,16 @@ def main() -> None:
     parser.add_argument("--min-coverage", type=float, default=0.90)
     parser.add_argument("--max-gap-s", type=float, default=2.0)
     parser.add_argument(
+        "--require-alignment-pass",
+        action="store_true",
+        help=(
+            "Exit non-zero when telemetry alignment quality fails. "
+            "By default the wrapper preserves the quality result and allows "
+            "the runtime profiling pipeline to continue; downstream power/"
+            "ranking gates must still reject pass=false telemetry."
+        ),
+    )
+    parser.add_argument(
         "command",
         nargs=argparse.REMAINDER,
         help="Command to run after --.",
@@ -229,6 +239,7 @@ def main() -> None:
         "command": command,
         "command_returncode": command_returncode,
         "alignment_returncode": alignment_returncode,
+        "alignment_required": bool(args.require_alignment_pass),
         "artifacts": {
             "timestamps": str(timestamps_json),
             "netdata": str(netdata_csv),
@@ -241,7 +252,7 @@ def main() -> None:
 
     if command_returncode:
         raise SystemExit(command_returncode)
-    if alignment_returncode:
+    if alignment_returncode and args.require_alignment_pass:
         raise SystemExit(alignment_returncode)
 
 
