@@ -47,7 +47,7 @@ adapter preserves artifact compatibility while accepting the readable forms
 
 This bundle is **not registered as a production-ready Pre6G node model**. Its
 RTX 4090 node/GPU association is now recorded, but the supplied files do not
-identify idle power, sampling interval, train/validation split, test metrics,
+identify the sampling interval, train/validation split, test metrics,
 missing-value policy, or a formal out-of-distribution policy. The original
 notebook also refers to a sample-data JSON file that was not supplied.
 
@@ -55,9 +55,25 @@ The model owner confirmed that `ACTUAL_POWER_W` is measured by an external
 power meter at PDU1 Outlet1 and represents whole-node wall power rather than
 NVIDIA GPU power. The target is therefore recorded as `node-total-power`.
 
-The bundle still remains `validation_required` because idle power, held-out
+The bundle still remains `validation_required` because held-out
 validation metrics, missing-value policy, and a formal OOD policy are not yet
 frozen. These remaining gates must pass before automatic cross-node ranking.
+
+
+## Energy objective
+
+The current Pre6G scheduling objective uses this model's whole-node wall-power
+prediction directly when estimating gross node energy over the predicted task
+runtime:
+
+~~~text
+E_predicted_steady_gross = P_predicted_node_steady × T_predicted_steady
+~~~
+
+An idle-power baseline is not required for this primary metric. If a future
+study estimates task-incremental energy on a loaded node, it must use a
+separately validated background-only counterfactual rather than assuming
+machine idle power is the correct baseline.
 
 ## Artifact integrity
 
