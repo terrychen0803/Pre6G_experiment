@@ -183,3 +183,43 @@ Power-window cropping is intentionally deferred until the profiler termination
 path is confirmed: a configured 120-second deadline may be projected from
 `profile_start_ns` only when Nsight actually reached its configured duration,
 not when the workload naturally exited early.
+
+
+## RTX4090 natural-exit confirmation
+
+The retained container runtime log resolves the formal capture termination
+semantics. The telemetry wrapper recorded:
+
+~~~text
+command_returncode                  0
+accepted_command_returncodes        [143]
+command_returncode_accepted         true
+~~~
+
+The Nsight invocation was configured with `--duration=120`,
+`--kill=sigterm`, and `--stop-on-exit=true`, but YOLO reported
+`30 epochs completed` at 2026-09-30T00:45:55.294403352+08:00 and its final
+workload output at 2026-09-30T00:45:55.500159060+08:00. Nsight subsequently
+entered report collection/finalization and returned 0 rather than the accepted
+duration-kill code 143.
+
+Therefore this RTX4090 formal run is classified as:
+
+~~~text
+termination_mode                    natural-target-exit
+configured_capture_limit_s          120
+duration_kill_observed              false
+outer_profile_start_ns              1790700245940091691
+last_yolo_output_ns                 1790700355500159060
+start_to_last_yolo_output_s         109.560067369
+outer_profile_end_ns                1790700387015257021
+~~~
+
+The outer ~141.075 s wrapper interval includes Nsight/report finalization and
+must not be used as the workload power horizon. Likewise,
+`profile_start + 120 s` is not valid for this run because the target exited
+naturally before the configured duration limit. Downstream power-window
+processing must use a natural-exit-aware boundary; the retained final YOLO
+wall-clock output is used as the current operational end marker for this
+specific run, with the limitation that it is a log-derived application-end
+proxy rather than a persisted profiler boundary.
