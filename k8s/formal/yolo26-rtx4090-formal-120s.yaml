@@ -44,7 +44,7 @@ spec:
               value: GPU-39ace77c-cb0f-dd47-ae6b-12014c25b1d1
 
             - name: NETDATA_URL
-              value: http://netdata.netdata.svc.cluster.local:19999/host/iccl-s3-251230
+              value: http://netdata.netdata.svc.cluster.local:19999/host/ICCL-S3-251230
 
             - name: DCGM_URL
               value: http://10.42.3.65:9400
