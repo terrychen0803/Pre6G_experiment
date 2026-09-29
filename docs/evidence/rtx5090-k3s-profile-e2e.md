@@ -708,3 +708,27 @@ scripts/run_profile_with_telemetry.py
 ~~~
 
 The next live-cluster gate is endpoint discovery for the RTX5090 Netdata Parent path and the RTX5090-specific DCGM Exporter Pod endpoint, followed by wrapping the already validated Nsight Profile Job command with this synchronization layer.
+
+### RTX5090 DCGM collector regression smoke
+
+A live 3-second collector smoke on node `mirc516-20250605` confirmed that the DCGM exporter endpoint and canonical collector now work together after fixing the CSV identity-field mismatch.
+
+~~~text
+endpoint       http://10.42.5.51:9400/metrics
+node           mirc516-20250605
+GPU UUID       GPU-a4e6b1ee-8a31-991f-dc82-fdab833483c4
+samples        3
+interval       1000 ms
+collector_rc   0
+~~~
+
+All required metrics were present exactly once for the target GPU:
+
+~~~text
+DCGM_FI_DEV_GPU_UTIL
+DCGM_FI_DEV_FB_USED
+DCGM_FI_DEV_GPU_TEMP
+DCGM_FI_DEV_POWER_USAGE
+~~~
+
+The emitted CSV contains the canonical fields `node`, `gpu_uuid`, `gpu_model`, `driver_version`, `gpu_index`, GPU utilization, framebuffer used, temperature, and power. The exporter `Hostname` label is now used to validate the requested node rather than being written as an undeclared CSV field.
