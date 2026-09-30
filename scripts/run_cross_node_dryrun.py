@@ -244,6 +244,13 @@ def prepare(config_path: Path, *, run_id: str, worker_commit: str) -> tuple[dict
     epochs = parameters.get("epochs")
     if not isinstance(epochs, int) or epochs <= 0:
         raise ValueError("source_job must declare a positive YOLO epoch count")
+    expected_total_units = epochs * math.ceil(
+        int(parameters["dataset_train_samples"]) / int(parameters["batch_size"])
+    )
+    if source_work.total_work_units != expected_total_units:
+        raise ValueError(
+            "source_job total work units conflict with epochs, dataset size, and batch size"
+        )
     if experiment_stage == "functional-validation":
         if epochs != 30:
             raise ValueError("functional-validation fixture must remain 30 epochs")
