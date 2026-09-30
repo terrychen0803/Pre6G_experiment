@@ -1,5 +1,7 @@
 # YOLO26 長跑跨節點驗證（研究流程）
 
+> **正式 workload 已固定：**`examples/yolo26/formal-40min-source-job.yaml` 使用 1639 epochs / 52448 iterations；其 sizing 基於 `yolo26-functional-003` 的 RTX4090 45.7758597312 ms/iteration，事前估計約 40.014 分鐘。Formal source 標記 `full-workload-fixed=true`，所以 validation planner 不會再依新的 ranking prediction 改動 epochs。這個 sizing 尚未由 40–50 分鐘實機 full run 驗證。
+
 > **狀態提醒：**目前 `examples/yolo26/validation-source-job.yaml` 已明確歸類為 functional/integration fixture（30 epochs / 960 iterations），不是正式 30–50 分鐘 user workload。本文的 validation planner 可作為後續 ground-truth 長跑工具，但在「原始 full workload 與 120 秒 dry-run workload 分離」完成前，不應把目前 fixture 的 prediction 當成 formal runtime accuracy 結果。
 
 本流程把已完成的 dry-run 預測結果凍結、選出預測節點，再在**所有候選節點**執行同一份完整 YOLO26 訓練，最後比較實際時間與外部 PDU 的整機用電。它用於驗證 runtime / power 排序，不是正式自動調度器，也不能以合成圖像宣稱物件偵測 mAP 準確度。
