@@ -255,6 +255,21 @@ def prepare(config_path: Path, *, run_id: str, worker_commit: str) -> tuple[dict
         if epochs != 30:
             raise ValueError("functional-validation fixture must remain 30 epochs")
     else:
+        source_args = {
+            str(item)
+            for item in source["spec"]["template"]["spec"]["containers"][0].get("args") or []
+        }
+        for option in ("val=False", "save=False", "patience=0"):
+            if option not in source_args:
+                raise ValueError(
+                    f"formal-experiment source_job must include {option} "
+                    "for the training-only runtime benchmark"
+                )
+        if source_annotations.get("pre6g.io/formal-workload-revision") != "v2-training-only":
+            raise ValueError(
+                "formal-experiment source_job must declare "
+                "pre6g.io/formal-workload-revision=v2-training-only"
+            )
         if source_annotations.get("pre6g.io/full-workload-fixed") != "true":
             raise ValueError("formal-experiment source_job must mark pre6g.io/full-workload-fixed=true")
         try:
@@ -291,8 +306,14 @@ def prepare(config_path: Path, *, run_id: str, worker_commit: str) -> tuple[dict
                 or annotations.get("pre6g.io/test-purpose") != test_purpose
                 or annotations.get("pre6g.io/production-result") != "false"):
             raise ValueError(f"{template_path}: profile template experiment annotations differ from config")
-        if experiment_stage == "formal-experiment" and annotations.get("pre6g.io/full-workload-fixed") != "true":
-            raise ValueError(f"{template_path}: formal profile must preserve the fixed full-workload definition")
+        if experiment_stage == "formal-experiment":
+            if annotations.get("pre6g.io/full-workload-fixed") != "true":
+                raise ValueError(f"{template_path}: formal profile must preserve the fixed full-workload definition")
+            if annotations.get("pre6g.io/formal-workload-revision") != "v2-training-only":
+                raise ValueError(
+                    f"{template_path}: formal profile must declare "
+                    "pre6g.io/formal-workload-revision=v2-training-only"
+                )
         if job["metadata"].get("namespace") != namespace:
             raise ValueError(f"{node}: profile template namespace differs from config")
         spec = job["spec"]["template"]["spec"]
@@ -318,13 +339,15 @@ def prepare(config_path: Path, *, run_id: str, worker_commit: str) -> tuple[dict
             raise ValueError(f"{node}: template lacks the shared artifact path contract")
         if "--duration=120" not in original:
             raise ValueError(f"{node}: template must keep the validated 120-second capture policy")
-        expected_options = (
+        expected_options = [
             f"model={parameters['model']}",
             f"epochs={parameters['epochs']}",
             f"imgsz={parameters['input_size']}",
             f"batch={parameters['batch_size']}",
             f"amp={parameters['amp']}",
-        )
+        ]
+        if experiment_stage == "formal-experiment":
+            expected_options.extend(("val=False", "save=False", "patience=0"))
         for option in expected_options:
             if option not in original:
                 raise ValueError(f"{node}: dry-run workload differs from source Job: {option}")
