@@ -3,7 +3,12 @@ kind: Job
 metadata:
   name: pre6g-yolo26-validation-source
   namespace: experiments
+  # Legacy filename retained for compatibility. This is a functional/integration
+  # fixture, not the formal 30-50 minute research workload.
   annotations:
+    pre6g.io/experiment-stage: functional-validation
+    pre6g.io/test-purpose: cross-node-pipeline-integration
+    pre6g.io/production-result: "false"
     pre6g.io/application-container: trainer
     pre6g.io/workload-family: vision-training
     pre6g.io/workload-adapter: yolo
