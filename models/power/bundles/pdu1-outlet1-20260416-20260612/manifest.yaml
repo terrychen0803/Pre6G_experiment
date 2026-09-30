@@ -40,4 +40,5 @@ preprocessing:
 
 known_gaps:
   - Original sample-data JSON was not supplied.
-  - Held-out metrics, missing-value policy, and formal OOD policy are unknown.
+  - Held-out metrics and missing-value policy are unknown.
+  - Scaler min/max bounds are reference ranges only; they are not an OOD policy.
