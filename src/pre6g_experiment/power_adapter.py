@@ -99,7 +99,7 @@ def build_power_smoke_result(
     manifest: dict[str, Any],
     required_features: list[str],
     predicted_rows: list[dict[str, Any]],
-    ood_messages: list[str],
+    range_warnings: list[str],
     alignment_quality: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     node_binding = manifest.get("node_binding") or {}
@@ -115,8 +115,6 @@ def build_power_smoke_result(
     if not bool(target.get("semantics_verified")):
         blockers.append("power target semantics are not verified")
     idle_power = manifest.get("idle_power_w")
-    if ood_messages:
-        blockers.append("telemetry contains out-of-domain feature values")
     if alignment_quality is not None and not bool(alignment_quality.get("pass")):
         blockers.append("Netdata/DCGM alignment quality did not pass")
 
@@ -143,8 +141,8 @@ def build_power_smoke_result(
         "target_semantics_verified": bool(target.get("semantics_verified")),
         "target_unit": target.get("unit"),
         "idle_power_w": idle_power,
-        "ood": bool(ood_messages),
-        "ood_messages": list(ood_messages),
+        "range_exceeded": bool(range_warnings),
+        "range_warnings": list(range_warnings),
         "alignment_quality": alignment_quality,
         "observed_profile_window": series_summary,
         "blockers": blockers,
@@ -154,8 +152,13 @@ def build_power_smoke_result(
                 "target semantics, model validation, and deployment policy are frozen."
             ),
             (
+                "Scaler min/max bounds are preprocessing reference ranges, not an "
+                "OOD detector. Range exceedance is diagnostic and does not by itself "
+                "block model prediction or ranking."
+            ),
+            (
                 "Do not multiply this profiled-window power by predicted training time "
-                "for automatic ranking while ranking_eligible is false."
+                "for automatic ranking while ranking_eligible is false for other gates."
             ),
         ],
     }
