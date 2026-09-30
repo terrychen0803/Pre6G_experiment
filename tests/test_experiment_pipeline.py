@@ -52,6 +52,12 @@ class ExperimentPipelineTests(unittest.TestCase):
             pdu_interval=None,
             timestamp_column="timestamp",
             power_column="power_w",
+            cross_node_config=None,
+            run_id=None,
+            worker_commit=None,
+            execute=False,
+            kube_context=None,
+            timeout_seconds=900,
         )
 
     def test_demo_uses_repository_synthetic_results(self):
@@ -107,6 +113,22 @@ class ExperimentPipelineTests(unittest.TestCase):
             stages = PIPELINE.build_stages(args, Path(raw_tmp))
             power = next(stage for stage in stages if stage.name == "08-predict-power")
             self.assertNotIn("--reject-ood", power.command)
+
+    def test_cross_node_mode_plans_without_kubectl_by_default(self):
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            args = self.base_args(Path(raw_tmp))
+            args.mode = "cross-node"
+            args.job = None
+            args.cross_node_config = ROOT / "examples/yolo26/cross-node-dryrun.yaml"
+            args.run_id = "test-run-001"
+            args.worker_commit = "767756535d215293f7c6d96b65ae0c07134248c0"
+            PIPELINE.validate(args)
+            stages = PIPELINE.build_stages(args, Path(raw_tmp))
+            self.assertEqual(len(stages), 1)
+            self.assertNotIn("--execute", stages[0].command)
+            args.execute = True
+            with self.assertRaisesRegex(ValueError, "kube-context"):
+                PIPELINE.validate(args)
 
 
 if __name__ == "__main__":

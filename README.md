@@ -6,6 +6,8 @@
 
 YOLO26 跨節點 30–50 分鐘訓練驗證的準備、部署命令與 PDU 五分鐘資料評估，見 [長跑驗證使用說明](docs/yolo26-longrun-validation-zh.md)。目前部署需由操作者在有 K3s 權限的環境手動執行，整合程式不會自行啟動訓練。
 
+排名前的「同時部署所有候選節點 dry-run → 回收產物 → master 預測與排名」已有明確執行的 YOLO26 協調模式；預設只產生計畫，詳見 [跨節點 dry-run 使用說明](docs/cross-node-dryrun-zh.md)。
+
 在 k3s 上執行「Generic workload intake → marker-free dry-run profiling → runtime / power prediction → energy-aware placement → production ground truth」的整合與驗證平台。
 
 YOLO26 只是目前第一個 integration fixture；平台核心不假設使用者一定是 YOLO、AI training，或一定使用 iteration 作為 work unit。

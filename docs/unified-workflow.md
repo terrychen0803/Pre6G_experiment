@@ -6,7 +6,7 @@
 
 | 入口 | 用途 | 執行條件 |
 |---|---|---|
-| `scripts/run_experiment_pipeline.py` | 串接既有單節點分析；規劃 YOLO26 全節點長跑與評估 PDU CSV | Python 3.10+；profile 模式需提供 trace 與模型 |
+| `scripts/run_experiment_pipeline.py` | 串接單節點分析、YOLO26 跨節點 dry-run 協調、全節點長跑規劃與 PDU 評估 | Python 3.10+；cross-node 執行需 kubectl / kubeconfig / power 模型依賴 |
 | `dashboard/index.html` | 展示文件中的實驗成果與平台介面示意 | 用瀏覽器直接開啟，無需 Python 或伺服器 |
 | `docs/project-assessment-zh.md` | 說明平台目的、已完成實驗與剩餘工作 | 閱讀文件 |
 
@@ -100,7 +100,7 @@ Power bundle 目前仍為 `validation_required`。最新 manifest 已記錄 node
 
 ## 4. 自動節點排序的輸入邊界
 
-`--node-results` 可把已組合好的多節點結果送入現有 decision gate，通過後輸出 `production-job.yaml`。目前 repository 尚無 Kubernetes controller 去自動建立所有 candidate Profile Jobs，也尚無把 runtime、power、quality artifacts 自動組成 `node-results` 的 reconciler；這兩項仍是平台化的下一層工作，而不是本 runner 假裝已完成的功能。
+`--node-results` 可把已組合好的多節點結果送入現有嚴格 decision gate，通過後輸出 `production-job.yaml`。目前尚無常駐 Kubernetes controller 或通用的 `node-results` reconciler；新增的 `--mode cross-node` 是明確執行的 YOLO26 實驗協調命令，會為此 fixture 建立所有 candidate Profile Jobs，回收產物並組成**研究用** `ranking-input.json`，不冒充嚴格 production gate 的 `node-results`。
 
 Runner 的正式排序使用原 Job 的靜態工作量語意，`--node-results` 必須與該 Job 相符；它尚未把 mounted-dataset discovery 的結果傳入 decision CLI。產出的 Job YAML 也不會自動 `kubectl apply`。`examples/yolo26/user-job.yaml` 的 image digest 是 placeholder，僅供本機 demo，不可直接部署；長跑驗證另有實驗來源 Job。
 
@@ -111,6 +111,8 @@ python scripts/provisional_rank_nodes.py --input docs/evidence/formal-cross-node
 ```
 
 詳見 [正式跨節點比較紀錄](evidence/formal-cross-node-energy-comparison.md)。這份輸入的 `candidates` schema 與 runner 的 `--node-results` schema 不同，不能混用。
+
+`--mode cross-node` 會先以 plan-only 模式產生多節點 dry-run YAML；只有明確指定 `--execute --kube-context` 才會同時提交 Jobs、回收共用 PVC 產物並在 master 預測排名。詳見 [跨節點 dry-run 協調說明](cross-node-dryrun-zh.md)。
 
 ## 5. YOLO26 長跑驗證與 PDU
 

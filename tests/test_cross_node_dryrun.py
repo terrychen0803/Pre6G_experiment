@@ -1,0 +1,175 @@
+from __future__ import annotations
+
+import importlib.util
+import json
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+
+import yaml
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SPEC = importlib.util.spec_from_file_location("run_cross_node_dryrun", ROOT / "scripts" / "run_cross_node_dryrun.py")
+assert SPEC and SPEC.loader
+DRYRUN = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(DRYRUN)
+CONFIG = ROOT / "examples/yolo26/cross-node-dryrun.yaml"
+COMMIT = "767756535d215293f7c6d96b65ae0c07134248c0"
+
+
+class CrossNodeDryrunTests(unittest.TestCase):
+    def test_plan_creates_concurrent_node_jobs_without_deploying(self):
+        plan, jobs, collector = DRYRUN.prepare(CONFIG, run_id="test-run-001", worker_commit=COMMIT)
+        self.assertEqual(plan["source_total_work_units"], 960)
+        self.assertEqual(len(jobs), 2)
+        self.assertEqual(collector["spec"]["volumes"][0]["persistentVolumeClaim"]["claimName"], "pre6g-artifacts")
+        self.assertEqual({job["spec"]["template"]["spec"]["nodeSelector"]["kubernetes.io/hostname"] for job in jobs}, {"iccl-s3-251230", "mirc516-20250605"})
+        for job in jobs:
+            container = job["spec"]["template"]["spec"]["containers"][0]
+            self.assertIn(COMMIT, container["command"][2])
+            self.assertIn("--duration=120", container["command"][2])
+            self.assertIn("run_command_with_end_marker.py", container["command"][2])
+            env = {item["name"]: item["value"] for item in container["env"]}
+            self.assertEqual(env["TASK_ID"], "test-run-001")
+            self.assertEqual(job["metadata"]["labels"]["pre6g.io/candidate-node"], env["NODE_NAME"])
+
+    def test_wrong_bundle_binding_is_rejected(self):
+        config = yaml.safe_load(CONFIG.read_text(encoding="utf-8"))
+        config["candidates"][0]["power_bundle"] = config["candidates"][1]["power_bundle"]
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "config.yaml"
+            path.write_text(yaml.safe_dump(config), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "bound to another node"):
+                DRYRUN.prepare(path, run_id="test-run-001", worker_commit=COMMIT)
+
+    def test_invalid_or_repeated_identity_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "worker_commit"):
+            DRYRUN.prepare(CONFIG, run_id="test-run-001", worker_commit="short")
+        with self.assertRaisesRegex(ValueError, "run_id"):
+            DRYRUN.prepare(CONFIG, run_id="../unsafe", worker_commit=COMMIT)
+
+    def test_cluster_preflight_needs_kubectl_and_never_submits_without_it(self):
+        plan, _, _ = DRYRUN.prepare(CONFIG, run_id="test-run-001", worker_commit=COMMIT)
+        with tempfile.TemporaryDirectory() as raw, patch.object(DRYRUN.shutil, "which", return_value=None), patch.object(DRYRUN.subprocess, "run", return_value=SimpleNamespace(returncode=0)):
+            with self.assertRaisesRegex(RuntimeError, "kubectl is unavailable"):
+                DRYRUN._preflight(plan, "missing-context", Path(raw))
+
+    def test_preflight_checks_context_nodes_and_shared_pvc(self):
+        plan, _, _ = DRYRUN.prepare(CONFIG, run_id="test-run-001", worker_commit=COMMIT)
+
+        def command_result(command, **_kwargs):
+            return SimpleNamespace(returncode=0 if command[0] == "git" else 1)
+
+        def kubectl_result(command, **_kwargs):
+            if command[:3] == ["kubectl", "config", "current-context"]:
+                return "test-context\n"
+            if "pvc" in command:
+                return json.dumps({"status": {"phase": "Bound"}, "spec": {"accessModes": ["ReadWriteMany"]}})
+            if "node" in command:
+                return json.dumps({"status": {"conditions": [{"type": "Ready", "status": "True"}], "allocatable": {"nvidia.com/gpu.shared": "1"}}})
+            return ""
+
+        with tempfile.TemporaryDirectory() as raw, patch.object(DRYRUN.shutil, "which", return_value="kubectl"), patch.object(DRYRUN.subprocess, "run", side_effect=command_result), patch.object(DRYRUN, "_invoke", side_effect=kubectl_result) as invoke:
+            DRYRUN._preflight(plan, "test-context", Path(raw))
+            self.assertEqual(invoke.call_count, 6)
+
+    def test_target_wrapper_records_process_window(self):
+        with tempfile.TemporaryDirectory() as raw:
+            marker = Path(raw) / "application-window.json"
+            result = subprocess.run([
+                sys.executable, str(ROOT / "scripts/run_command_with_end_marker.py"),
+                "--output", str(marker), "--", sys.executable, "-c", "print('trained')",
+            ], capture_output=True, text=True, check=False)
+            self.assertEqual(result.returncode, 0)
+            window = json.loads(marker.read_text(encoding="utf-8"))
+            self.assertLess(window["started_at_unix_ns"], window["finished_at_unix_ns"])
+            self.assertEqual(window["returncode"], 0)
+
+    def test_telemetry_crop_requires_full_target_coverage(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            csv_path = root / "aligned.csv"
+            start = 1_000_000_000_000
+            csv_path.write_text("timestamp_ns,power\n" + "".join(f"{start + i * 1_000_000_000},{100 + i}\n" for i in range(12)), encoding="utf-8")
+            window = root / "window.json"
+            window.write_text(json.dumps({
+                "schema_version": "pre6g.application-window/v1",
+                "command": ["yolo", "detect", "train"],
+                "started_at_unix_ns": start,
+                "finished_at_unix_ns": start + 11_000_000_000,
+            }), encoding="utf-8")
+            crop = DRYRUN._crop_telemetry(csv_path, window, root / "cropped.csv")
+            self.assertEqual(crop["sample_count"], 12)
+            self.assertTrue((root / "cropped.csv").is_file())
+            window.write_text(json.dumps({
+                "schema_version": "pre6g.application-window/v1",
+                "command": ["yolo", "detect", "train"],
+                "started_at_unix_ns": start - 3_000_000_000,
+                "finished_at_unix_ns": start + 11_000_000_000,
+            }), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "does not cover"):
+                DRYRUN._crop_telemetry(csv_path, window, root / "bad.csv")
+
+    def test_wait_requires_all_candidate_jobs(self):
+        plan, _, _ = DRYRUN.prepare(CONFIG, run_id="test-run-001", worker_commit=COMMIT)
+        jobs = [{"metadata": {"name": row["job_name"]}, "status": {"succeeded": 1}} for row in plan["candidates"]]
+        with tempfile.TemporaryDirectory() as raw, patch.object(DRYRUN, "_invoke", return_value=json.dumps({"items": jobs})):
+            DRYRUN._wait_jobs(plan, "test-context", Path(raw), 10)
+            status = json.loads((Path(raw) / "dryrun-jobs-status.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(status["items"]), 2)
+        jobs[1]["status"] = {"failed": 1}
+        with tempfile.TemporaryDirectory() as raw, patch.object(DRYRUN, "_invoke", return_value=json.dumps({"items": jobs})):
+            with self.assertRaisesRegex(RuntimeError, "dry-run Job failed"):
+                DRYRUN._wait_jobs(plan, "test-context", Path(raw), 10)
+
+    def test_master_assembles_and_ranks_collected_predictions(self):
+        plan, _, _ = DRYRUN.prepare(CONFIG, run_id="test-run-001", worker_commit=COMMIT)
+        real_invoke = DRYRUN._invoke
+
+        def fake_inference(command, **kwargs):
+            script_name = Path(command[1]).name
+            if script_name in {"discover_work.py", "provisional_rank_nodes.py"}:
+                return real_invoke(command, **kwargs)
+            output = Path(command[command.index("--output") + 1]) if "--output" in command else Path(command[command.index("--output-summary") + 1])
+            node = next(row["node"] for row in plan["candidates"] if row["node"] in str(output))
+            if script_name == "predict_runtime.py":
+                payload = {"model_id": f"runtime-{node}", "predicted_runtime_ms": 50}
+            elif script_name == "aggregate_runtime.py":
+                payload = {"node": node, "device_id": next(row["device_id"] for row in plan["candidates"] if row["node"] == node), "model_id": f"runtime-{node}", "work_unit": "training_iteration", "total_work_units": 960, "predicted_runtime_ms_per_work_unit": 50 if node == plan["candidates"][0]["node"] else 100}
+            else:
+                candidate = next(row for row in plan["candidates"] if row["node"] == node)
+                payload = {"bound_node": node, "bound_gpu_uuid": candidate["gpu_uuid"], "target_semantics": "node-total-power", "target_unit": "W", "model_id": f"power-{node}", "status": "validation_required", "range_exceeded": True, "range_warnings": ["reference range exceeded"], "observed_profile_window": {"time_weighted_mean_predicted_power_w": 100 if node == plan["candidates"][0]["node"] else 200}}
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(json.dumps(payload), encoding="utf-8")
+            return ""
+
+        with tempfile.TemporaryDirectory() as raw:
+            output = Path(raw)
+            for item in plan["candidates"]:
+                node = item["node"]
+                artifacts = output / "artifacts" / node
+                telemetry = artifacts / "telemetry"
+                telemetry.mkdir(parents=True)
+                features = {"schema_version": "pre6g.runtime-features/v1", "node": node, "device_id": item["device_id"]}
+                profile = {"schema_version": "pre6g.profile-result/v1", "task_id": plan["run_id"], "node": node, "device_id": item["device_id"], "status": "ready-for-control-side-inference", "detector": {"complete_cycles": 5}, "runtime_features": features}
+                (artifacts / "runtime-features.json").write_text(json.dumps(features), encoding="utf-8")
+                (artifacts / "profile-result.json").write_text(json.dumps(profile), encoding="utf-8")
+                (telemetry / "alignment-quality.json").write_text(json.dumps({"pass": True}), encoding="utf-8")
+                start = 1_000_000_000_000
+                (telemetry / "application-window.json").write_text(json.dumps({"schema_version": "pre6g.application-window/v1", "command": ["yolo", "detect", "train"], "started_at_unix_ns": start, "finished_at_unix_ns": start + 11_000_000_000}), encoding="utf-8")
+                (telemetry / "aligned-telemetry.csv").write_text("timestamp_ns,power\n" + "".join(f"{start + i * 1_000_000_000},100\n" for i in range(12)), encoding="utf-8")
+            with patch.object(DRYRUN, "_invoke", side_effect=fake_inference):
+                DRYRUN._predict(plan, output)
+            ranking_input = json.loads((output / "ranking-input.json").read_text(encoding="utf-8"))
+            ranking = json.loads((output / "provisional-ranking.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(ranking_input["candidates"]), 2)
+            self.assertEqual(ranking["selected_node"], plan["candidates"][0]["node"])
+
+
+if __name__ == "__main__":
+    unittest.main()

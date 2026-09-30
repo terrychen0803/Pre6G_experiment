@@ -5,7 +5,7 @@
 ## 已有與新增的邊界
 
 - `--mode profile`：處理**已取得**的單節點 Nsight SQLite、telemetry 與模型；不建立 K3s Profile Job，也不自動彙整多節點預測。
-- 先依現有 profile 流程完成每個候選節點的 dry-run，將每節點 `predicted_runtime_ms_per_work_unit`、`predicted_node_total_steady_power_w` 和模型狀態填入 `pre6g.provisional-ranking-input/v1`。欄位範例見 `docs/evidence/formal-cross-node-ranking-input.json`。同一份輸入 Job、資料、batch、GPU sharing 與 profiler 設定必須一致。
+- 可先使用 [`--mode cross-node`](cross-node-dryrun-zh.md) 同時建立候選節點 dry-run Jobs，回收共用 PVC 產物，在 master 預測並自動產出 `pre6g.provisional-ranking-input/v1`；若沿用先前人工 profile 證據，欄位範例見 `docs/evidence/formal-cross-node-ranking-input.json`。同一份輸入 Job、資料、batch、GPU sharing 與 profiler 設定必須一致。
 - `--mode validation`：檢查來源 Job 的工作量與排名輸入一致，凍結研究排序，依選中節點的目標分鐘數計算共同訓練 epochs，產生每節點 Job YAML、預測與部署指令。**不會自動部署。**
 - `--mode validation-evaluate`：從完成的 Pod JSON 取 trainer container 起迄時間；可加上每節點 PDU CSV 來積分整機用電、評估選擇是否命中實際最低耗電節點。
 

@@ -21,6 +21,7 @@ class Stage:
     command: list[str]
     outputs: list[Path] = field(default_factory=list)
     required: bool = True
+    stream_output: bool = False
 
 
 def utc_now() -> str:
@@ -82,33 +83,60 @@ class PipelineRunner:
             return
 
         print(f"[run ] {stage.name}")
-        completed = subprocess.run(
-            stage.command,
-            cwd=ROOT,
-            env=self.env,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            capture_output=True,
-            check=False,
-        )
-        duration = round(time.monotonic() - started, 3)
         log_path = self.output_dir / "logs" / f"{stage.name}.log"
         log_path.parent.mkdir(parents=True, exist_ok=True)
-        log_path.write_text(
-            "$ "
-            + command_text(stage.command)
-            + "\n\n--- stdout ---\n"
-            + completed.stdout
-            + "\n--- stderr ---\n"
-            + completed.stderr,
-            encoding="utf-8",
-        )
+        if stage.stream_output:
+            recent: list[str] = []
+            with log_path.open("w", encoding="utf-8") as handle:
+                handle.write("$ " + command_text(stage.command) + "\n\n")
+                process = subprocess.Popen(
+                    stage.command,
+                    cwd=ROOT,
+                    env=self.env,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    bufsize=1,
+                )
+                assert process.stdout is not None
+                for line in process.stdout:
+                    print(line, end="", flush=True)
+                    handle.write(line)
+                    recent.append(line)
+                    if len(recent) > 20:
+                        recent.pop(0)
+                returncode = process.wait()
+            message = "".join(recent).strip()
+        else:
+            completed = subprocess.run(
+                stage.command,
+                cwd=ROOT,
+                env=self.env,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                capture_output=True,
+                check=False,
+            )
+            returncode = completed.returncode
+            message = completed.stderr.strip() or completed.stdout.strip()
+            log_path.write_text(
+                "$ "
+                + command_text(stage.command)
+                + "\n\n--- stdout ---\n"
+                + completed.stdout
+                + "\n--- stderr ---\n"
+                + completed.stderr,
+                encoding="utf-8",
+            )
+        duration = round(time.monotonic() - started, 3)
 
         record.update(
             {
-                "status": "passed" if completed.returncode == 0 else "failed",
-                "exit_code": completed.returncode,
+                "status": "passed" if returncode == 0 else "failed",
+                "exit_code": returncode,
                 "duration_s": duration,
                 "finished_at": utc_now(),
                 "log": relative(log_path, self.output_dir),
@@ -116,8 +144,7 @@ class PipelineRunner:
         )
         self.records.append(record)
 
-        if completed.returncode != 0:
-            message = completed.stderr.strip() or completed.stdout.strip()
+        if returncode != 0:
             raise RuntimeError(f"stage {stage.name!r} failed: {message}")
 
 
@@ -130,6 +157,21 @@ def module(*arguments: str | Path) -> list[str]:
 
 
 def build_stages(args: argparse.Namespace, output: Path) -> list[Stage]:
+    if args.mode == "cross-node":
+        command = py_script(
+            "run_cross_node_dryrun.py",
+            "--config", args.cross_node_config,
+            "--run-id", args.run_id,
+            "--worker-commit", args.worker_commit,
+            "--output-dir", output,
+            "--timeout-seconds", str(args.timeout_seconds),
+        )
+        outputs = [output / "cross-node-plan.json", output / "cross-node-run-summary.json"]
+        if args.execute:
+            command.extend(["--execute", "--kube-context", args.kube_context])
+            outputs.extend([output / "ranking-input.json", output / "provisional-ranking.json"])
+        return [Stage("01-cross-node-dryrun-and-ranking", command, outputs, stream_output=True)]
+
     if args.mode == "validation-evaluate":
         result = output / "validation-result.json"
         command = py_script(
@@ -397,7 +439,7 @@ def parser() -> argparse.ArgumentParser:
             "write a machine-readable run summary."
         )
     )
-    root.add_argument("--mode", choices=("demo", "profile", "validation", "validation-evaluate"), default="demo")
+    root.add_argument("--mode", choices=("demo", "profile", "cross-node", "validation", "validation-evaluate"), default="demo")
     root.add_argument("--job", type=Path)
     root.add_argument("--output-dir", type=Path, required=True)
     root.add_argument("--resume", action="store_true")
@@ -412,6 +454,12 @@ def parser() -> argparse.ArgumentParser:
     root.add_argument("--pdu-interval", choices=("start", "end"))
     root.add_argument("--timestamp-column", default="timestamp")
     root.add_argument("--power-column", default="power_w")
+    root.add_argument("--cross-node-config", type=Path)
+    root.add_argument("--run-id")
+    root.add_argument("--worker-commit")
+    root.add_argument("--execute", action="store_true")
+    root.add_argument("--kube-context")
+    root.add_argument("--timeout-seconds", type=int, default=900)
 
     root.add_argument("--sqlite", type=Path)
     root.add_argument("--node")
@@ -433,6 +481,16 @@ def parser() -> argparse.ArgumentParser:
 
 
 def validate(args: argparse.Namespace) -> None:
+    if args.execute and args.mode != "cross-node":
+        raise ValueError("--execute is only supported in cross-node mode")
+    if args.mode == "cross-node":
+        if args.cross_node_config is None or not args.run_id or not args.worker_commit:
+            raise ValueError("cross-node requires --cross-node-config, --run-id, and --worker-commit")
+        if args.execute and not args.kube_context:
+            raise ValueError("--execute requires --kube-context")
+        if args.resume:
+            raise ValueError("cross-node does not support --resume")
+        return
     if args.mode == "validation-evaluate":
         if args.validation_plan is None or args.pods_json is None:
             raise ValueError("validation-evaluate requires --validation-plan and --pods-json")
@@ -501,6 +559,7 @@ def main() -> int:
         "ranking_input",
         "validation_plan",
         "pods_json",
+        "cross_node_config",
     ):
         value = getattr(args, name, None)
         if value is not None:
