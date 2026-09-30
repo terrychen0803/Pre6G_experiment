@@ -87,7 +87,7 @@ preprocessing:
   sha256: ...
 ~~~
 
-Do not mark a model ready until the exact feature order, units, normalization/scaler state, missing-value policy, training domain, OOD policy, and output semantics are frozen.
+Do not mark a model ready until the exact feature order, units, normalization/scaler state, missing-value policy, validation evidence, and output semantics are frozen. Scaler min/max bounds are preprocessing reference ranges and are not, by themselves, an OOD policy.
 
 ## Binding gate
 
@@ -177,11 +177,16 @@ A node-specific model may still require Top1 GPU% / Top2 GPU%. In that case the 
 
 Recommended model states:
 
-- ready: binding, artifact, schema, preprocessing, target semantics, OOD policy, and required features all pass.
+- ready: binding, artifact, schema, preprocessing, target semantics, validation policy, and required features all pass.
 - unavailable: no production model bundle is installed for that node.
 - schema_mismatch: model exists but the telemetry/extractor contract is incompatible.
 - model_binding_mismatch: node or physical GPU UUID differs from the manifest.
-- rejected_ood: the current observation is outside the model training domain.
+
+Power-model scaler-range exceedance is not a rejection state. The supplied ONNX
+models do not implement OOD detection, and their scaler min/max values are
+treated as reference bounds only. Pre6G records `range_exceeded` /
+`range_warnings` as diagnostic metadata while continuing inference without
+clipping.
 
 Automatic ranking requires at least two comparable ready candidate nodes when the experiment intends to make a cross-node placement claim. With only one ready node, prediction may still be reported, but the system should not present it as a validated cross-node comparison.
 
@@ -204,7 +209,8 @@ Each node result should include:
     "steady_power_w": 350.0,
     "idle_power_w": null,
     "confidence": 0.93,
-    "ood": false,
+    "range_exceeded": true,
+    "range_warnings": ["GPU Power(W) exceeds scaler reference range"],
     "missing_features": []
   }
 }
