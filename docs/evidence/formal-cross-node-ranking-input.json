@@ -17,8 +17,8 @@
         "model_id": "pdu1-outlet1-20260416-20260612",
         "predicted_node_total_steady_power_w": 354.3231773345533,
         "status": "validation_required",
-        "ood": true,
-        "ood_detail": "GPU Mem Used(MB), 109/109 rows"
+        "range_exceeded": true,
+        "range_detail": "GPU Mem Used(MB), 109/109 rows"
       }
     },
     {
@@ -32,8 +32,8 @@
         "model_id": "pdu1-outlet7-rtx5090-20260416-20260612",
         "predicted_node_total_steady_power_w": 462.28196331549725,
         "status": "validation_required",
-        "ood": true,
-        "ood_detail": "GPU Power(W) exceeds recorded range in part of the window"
+        "range_exceeded": true,
+        "range_detail": "GPU Power(W) exceeds recorded range in part of the window"
       }
     }
   ]
