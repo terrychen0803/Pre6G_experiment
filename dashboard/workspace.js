@@ -9,7 +9,7 @@ const scenarios = {
     progressTag: '分析中', progressLabel: '已完成節點分析', progressValue: '1 / 2 個節點', progress: 50,
     elapsed: '分析已經過 01:12', remaining: '任務訓練尚未開始', choice: '分析完成', otherChoice: '分析中',
     gpu: 28, memory: 34, jobs: 1, loadState: '分析完成',
-    events: [['14:31:12', 'RTX4090 分析完成', '正在等待另一候選節點。'], ['14:30:08', '開始節點分析', '候選：RTX4090、RTX5090。'], ['14:30:00', '任務已接收', '已確認 960 次訓練迭代。']]
+    events: [['14:31:12', 'RTX4090 分析完成', '正在等待其餘候選節點。'], ['14:30:08', '開始節點分析', '候選：RTX4090、RTX5090。'], ['14:30:00', '任務已接收', '已確認 960 次訓練迭代。']]
   },
   selected: {
     label: '已選點', status: '已選定節點', tone: 'green', step: 2,
