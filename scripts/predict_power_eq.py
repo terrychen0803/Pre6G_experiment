@@ -38,22 +38,16 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--model", type=Path, default=DEFAULT_BUNDLE / "model.onnx")
     parser.add_argument("--scaler", type=Path, default=DEFAULT_BUNDLE / "scaler.json")
-    parser.add_argument(
-        "--reject-ood",
-        action="store_true",
-        help="Fail when a feature lies outside the scaler's recorded range",
-    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
     records = load_records(args.input)
-    predictions, out_of_domain = predict_records(
+    predictions, range_warnings = predict_records(
         records,
         args.model,
         args.scaler,
-        reject_out_of_domain=args.reject_ood,
     )
     if args.output:
         write_records(args.output, predictions)
@@ -61,10 +55,10 @@ def main() -> int:
     else:
         json.dump(predictions, sys.stdout, ensure_ascii=False, indent=2)
         sys.stdout.write("\n")
-    if out_of_domain:
+    if range_warnings:
         print(
-            f"Warning: {len(out_of_domain)} out-of-domain feature value(s); "
-            "use --reject-ood for fail-closed behavior.",
+            f"Diagnostic: {len(range_warnings)} feature value(s) are outside "
+            "the scaler reference range; predictions were still emitted.",
             file=sys.stderr,
         )
     return 0
