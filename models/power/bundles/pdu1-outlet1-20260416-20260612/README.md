@@ -18,8 +18,7 @@ features. The ONNX graph has three inputs:
 | `x_other` | `N x 3` | `GPU Mem Used(MB)`, `GPU Temp(°C)`, `CPU Temp(°C)` |
 
 All five values are min-max scaled with `scaler.json`. The model output is
-converted back to watts with `prediction * 516.72 + 0.0`. Inputs are not
-clipped, because silently clipping telemetry can hide out-of-domain data.
+converted back to watts with `prediction * 516.72 + 0.0`. Inputs are not clipped. Values outside the scaler min/max are still passed to the ONNX model; the integration layer records those cases only as scaler-range diagnostics.
 
 ## Run inference
 
@@ -31,8 +30,7 @@ source .venv/bin/activate              # Windows: .venv\Scripts\activate
 python -m pip install -r requirements-power-model.txt
 python scripts/predict_power_eq.py \
   examples/power/pdu1-outlet1-sample.json \
-  --output generated/pdu1-outlet1-predictions.json \
-  --reject-ood
+  --output generated/pdu1-outlet1-predictions.json
 ```
 
 Input can be JSON or CSV. JSON must contain an array of records (or an object
@@ -55,9 +53,7 @@ The model owner confirmed that `ACTUAL_POWER_W` is measured by an external
 power meter at PDU1 Outlet1 and represents whole-node wall power rather than
 NVIDIA GPU power. The target is therefore recorded as `node-total-power`.
 
-The bundle still remains `validation_required` because held-out
-validation metrics, missing-value policy, and a formal OOD policy are not yet
-frozen. These remaining gates must pass before automatic cross-node ranking.
+The bundle still remains `validation_required` because held-out validation metrics and the missing-value policy are not yet frozen. Scaler min/max bounds are not treated as an OOD detector or rejection gate.
 
 
 ## Energy objective
@@ -74,6 +70,25 @@ An idle-power baseline is not required for this primary metric. If a future
 study estimates task-incremental energy on a loaded node, it must use a
 separately validated background-only counterfactual rather than assuming
 machine idle power is the correct baseline.
+
+
+## Scaler-range policy
+
+The model owner clarified that the original model test path does not implement
+OOD detection. The min/max values in `scaler.json` describe the scaler/data
+reference range used for preprocessing; exceeding those values does not make
+the ONNX model reject an input.
+
+Pre6G therefore treats:
+
+~~~text
+scaled value < 0 or > 1
+~~~
+
+as a diagnostic `range_exceeded` warning only. Prediction continues without
+clipping, and range exceedance alone does not block energy ranking. Historical
+evidence that used the label `ood=true` for this condition should be read as
+"outside scaler reference range", not as a model-native OOD judgment.
 
 ## Artifact integrity
 
