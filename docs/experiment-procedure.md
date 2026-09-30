@@ -628,6 +628,22 @@ T_total ≈ runtime_per_work_unit × total_work_units
 
 若 total work 或 semantic binding unknown，只保存 per-cycle/per-work-unit evidence，預設不自動部署。
 
+
+### Power scaler-range policy
+
+Power-model scaler min/max values are not used as an OOD detector. The supplied
+model test path performs scaling and ONNX inference without an OOD rejection
+step. Pre6G therefore records values outside scaler reference bounds as
+`range_exceeded` / `range_warnings` only.
+
+These warnings:
+
+- do not clip the input;
+- do not stop ONNX inference;
+- do not by themselves reject a candidate from energy ranking.
+
+Runtime-model OOD remains a separate gate.
+
 ## Phase 09：Production Job and ground-truth evaluation
 
 從原始 source Job deep-copy：
@@ -664,7 +680,8 @@ kubectl apply --dry-run=server -f production-job.yaml
 - energy regret
 - profiling overhead
 - decision latency
-- OOD/rejected/missing-feature rate
+- runtime OOD/rejected/missing-feature rate
+- power scaler-range warning rate（diagnostic only）
 - model-binding rejection rate
 - alignment quality distribution
 
