@@ -61,6 +61,30 @@ class CrossNodeDryrunTests(unittest.TestCase):
             command = job["spec"]["template"]["spec"]["containers"][0]["command"][2]
             self.assertIn("epochs=1639", command)
             self.assertIn("--duration=120", command)
+            self.assertIn("val=False", command)
+            self.assertIn("save=False", command)
+            self.assertIn("patience=0", command)
+            self.assertEqual(
+                job["metadata"]["annotations"]["pre6g.io/formal-workload-revision"],
+                "v2-training-only",
+            )
+
+    def test_formal_profile_rejects_validation_semantic_mismatch(self):
+        config = yaml.safe_load(FORMAL_CONFIG.read_text(encoding="utf-8"))
+        original = Path(ROOT / config["candidates"][0]["profile_job_template"])
+        profile = original.read_text(encoding="utf-8").replace(
+            "                    val=False \\\n",
+            "",
+            1,
+        )
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "profile.yaml"
+            path.write_text(profile, encoding="utf-8")
+            config["candidates"][0]["profile_job_template"] = str(path)
+            config_path = Path(raw) / "config.yaml"
+            config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "val=False"):
+                DRYRUN.prepare(config_path, run_id="formal-test-001", worker_commit=COMMIT)
 
     def test_control_side_power_dependencies_load_before_cluster_execution(self):
         plan, _, _ = DRYRUN.prepare(CONFIG, run_id="test-run-001", worker_commit=COMMIT)
