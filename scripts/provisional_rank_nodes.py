@@ -49,8 +49,8 @@ def rank_candidates(payload: dict[str, Any]) -> dict[str, Any]:
                 "predicted_steady_gross_energy_kj": steady_energy_j / 1000.0,
                 "predicted_steady_gross_energy_wh": steady_energy_j / 3600.0,
                 "power_status": power.get("status"),
-                "power_ood": bool(power.get("ood", False)),
-                "power_ood_detail": power.get("ood_detail"),
+                "power_range_exceeded": bool(power.get("range_exceeded", False)),
+                "power_range_detail": power.get("range_detail"),
             }
         )
 
@@ -96,7 +96,7 @@ def rank_candidates(payload: dict[str, Any]) -> dict[str, Any]:
         "ranked": ranked,
         "limitations": [
             "This path intentionally uses the current model predictions even when power bundles are validation_required.",
-            "OOD flags are preserved but do not block this research-only ranking test.",
+            "Power scaler-range warnings are preserved as diagnostics and do not block this ranking test.",
             "predicted steady runtime is not whole-job runtime.",
             "predicted steady gross energy is not whole-job energy.",
             "The strict production readiness gate in decision.py is not modified.",
