@@ -1,46 +1,116 @@
-# YOLO26 正式 30–50 分鐘 dry-run 預測實驗計畫
+# YOLO26 正式 30–50 分鐘 dry-run 預測實驗
 
-狀態：**planned / 尚未部署**。本文件刻意與目前 functional/integration fixture 分離；在 functional branch 完成 clean unattended run 並 merge 到 `main` 後，再以獨立 branch 實作正式 workload。
+狀態：**implementation merged candidate / 尚未完成 30–50 分鐘實機 ground-truth 驗證**。
 
-## 研究目標
+此流程與 functional/integration fixture 分離。正式 workload 已在看到 long-run ground truth 前固定；本次因時程限制，只要求程式、配置與 CI 驗證完成，不把未執行的 40 分鐘實測宣稱為已驗證結果。
 
-正式實驗要驗證的是：對一個**原始完整執行時間約 30–50 分鐘**的 YOLO26 training workload，只執行前 120 秒 dry-run profiling，利用 profiling 特徵預測原始完整 workload 的 runtime 與 energy，最後在所有候選節點完整執行同一工作量取得 ground truth。
+## 固定 workload
+
+Sizing reference 使用已完成的 functional run `yolo26-functional-003`：
+
+- reference node: `iccl-s3-251230` / RTX4090
+- reference prediction: 45.77585973120491 ms / training iteration
+- target: 40 minutes
+- train samples: 512
+- batch: 16
+- steps / epoch: 32
+- fixed epochs: **1639**
+- fixed total work units: **52448 training iterations**
+
+以 functional prediction 作為 sizing 參考時，52448 iterations 對應約 RTX4090 40.014 分鐘、RTX5090 41.112 分鐘的 steady compute。這只是事前 sizing estimate，不是 formal ground truth。
+
+正式來源 Job：
+
+`examples/yolo26/formal-40min-source-job.yaml`
+
+它明確標記：
+
+- `pre6g.io/experiment-stage: formal-experiment`
+- `pre6g.io/test-purpose: dryrun-full-workload-prediction`
+- `pre6g.io/full-workload-fixed: "true"`
+- `pre6g.io/work-unit: training_iteration`
+- `pre6g.io/total-work-units: "52448"`
+
+## Dry-run 與 full workload 的分離
+
+正式 dry-run **不再把 epochs 縮小**。兩個 candidate 的 profiling template 都保留完整 `epochs=1639`，只由 Nsight capture policy 限制前 120 秒：
 
 ```text
-Original full workload (fixed before formal evaluation)
-  → discover original total work units
-  → run only first 120 s under Nsight + Netdata + DCGM
-  → predict runtime per training iteration
-  → multiply by ORIGINAL full-workload iterations
-  → predict steady runtime / energy
-  → rank nodes
-  → run the SAME complete workload on every candidate node
-  → compare actual trainer runtime and external PDU energy
+Fixed original workload
+  1639 epochs / 52448 iterations
+          |
+          +-----------------------------+
+          |                             |
+          v                             |
+120-second dry-run                      |
+Nsight --duration=120                   |
+--kill=sigterm                          |
+          |                             |
+          v                             |
+runtime/power inference                 |
+          |                             |
+          v                             |
+per-iteration prediction × 52448 <------+
+          |
+          v
+predicted full steady runtime / energy
+          |
+          v
+optional later ground-truth full run
+same 1639 epochs on every candidate
 ```
 
-## 與 functional fixture 的必要分離
+Formal cross-node config：
 
-目前 functional fixture 固定為 512 train samples、batch 16、30 epochs、960 iterations，用途只是在短時間內驗證 cross-node 程式資料流。Formal workload 不得沿用「30 epochs 是完整工作量」的語意。
+`examples/yolo26/formal-cross-node-dryrun.yaml`
 
-正式實作時需要把以下三個概念分開：
+Profile templates：
 
-1. **full workload definition**：使用者原始完整 Job，work units 在 dry-run 前即固定。
-2. **dry-run capture policy**：只限制 profiling wall-clock，例如 Nsight `--duration=120 --kill=sigterm`；不得把完整 Job 的 epochs 改小來代表 dry-run。
-3. **ground-truth full run**：不掛 Nsight、使用相同 full workload work units，在每個 candidate node 完整跑完。
+- `k8s/formal/yolo26-rtx4090-formal-40min-dryrun-120s.yaml`
+- `k8s/formal/yolo26-rtx5090-formal-40min-dryrun-120s.yaml`
 
-## Formal merge gate
+## 程式保護
 
-正式實驗 branch 至少要通過：
+`run_cross_node_dryrun.py` 現在同時支援 functional 與 formal stage，並要求 config、source Job、profile template 的 experiment annotations 一致。Formal stage 另外要求：
 
-- full workload 與 dry-run template 的 model/data/imgsz/batch/AMP 等 workload identity 一致；
-- dry-run 只因 120 秒 capture policy 被中止，full-workload total units 仍來自原始 Job；
-- prediction 明確區分 steady compute runtime 與 whole-job runtime；
-- RTX4090／RTX5090 使用相同完整 work units；
-- 收集實際 trainer start/finish 作 runtime ground truth；
-- PDU 時間窗完整覆蓋 trainer window 後才能計算 energy ground truth；
-- 報告 prediction error，而不是只報 node ranking；
-- 不把 functional-validation 的 960-iteration 結果混入 formal accuracy result。
+- source Job 必須 `full-workload-fixed=true`
+- sizing target 必須介於 30–50 分鐘
+- 必須記錄 sizing reference node
+- source 的 epochs / dataset / batch 算出的 work units 必須與宣告的 total work units 一致
+- profiling template 必須保持與 source 完全相同的 model / epochs / imgsz / batch / AMP / dataset count
+- profiling wall-clock 仍固定 `--duration=120`
 
-## 仍待固定的實驗參數
+Ground-truth planner 遇到 `full-workload-fixed=true` 時，不再根據新的 prediction 重新調整 epochs；它會保持原始 1639 epochs / 52448 iterations，避免 prediction 反過來改變被驗證的 workload。
 
-正式 workload 的 exact epochs／dataset size 應在 formal branch 中固定，並在實驗前記錄選擇依據。目標是讓完整 workload 落在約 30–50 分鐘，但不能在看到最終 ground truth 後再調整工作量；若需要 pilot sizing，pilot 與 formal evaluation 必須使用不同 run IDs 並在結果中分開標示。
+## 執行方式
+
+正式 120 秒 cross-node dry-run：
+
+```bash
+COMMIT=$(git rev-parse HEAD)
+CTX=$(kubectl config current-context)
+
+python scripts/run_experiment_pipeline.py \
+  --mode cross-node \
+  --cross-node-config examples/yolo26/formal-cross-node-dryrun.yaml \
+  --run-id yolo26-formal-dryrun-001 \
+  --worker-commit "$COMMIT" \
+  --output-dir generated/yolo26-formal-dryrun-001 \
+  --preflight-only \
+  --kube-context "$CTX"
+```
+
+若 preflight 通過，可把 `--preflight-only` 改成 `--execute`。這只需要約 120 秒級 profiling 加上分析時間，不需要先跑完整 40 分鐘 ground truth。
+
+若未來要產生所有 candidate 的完整 ground-truth Jobs，必須使用 formal source Job 與 formal dry-run 的 ranking input。Planner 會保留固定 workload，而不是重新 sizing。
+
+## 尚未驗證的部分
+
+本次合併不代表下列項目已實測：
+
+- 1639 epochs 在 RTX4090/RTX5090 的實際 trainer wall-clock 是否真的落在 30–50 分鐘；
+- dry-run 對完整 52448 iterations runtime 的 formal prediction error；
+- 外部 PDU full-run energy ground truth；
+- prediction ranking 是否命中實際最低整機能耗節點。
+
+因此正式論文結果仍需要後續 full-run ground truth。現在合併的是**可執行且受測的 formal workflow implementation**，不是 formal accuracy result。
