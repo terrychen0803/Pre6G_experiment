@@ -1,0 +1,339 @@
+apiVersion: batch/v1
+kind: Job
+
+metadata:
+  name: pre6g-yolo26-5090-formal-40min-120s
+  namespace: experiments
+  # Formal workload identity is preserved; only profiling wall-clock is capped at 120 s.
+  annotations:
+    pre6g.io/experiment-stage: formal-experiment
+    pre6g.io/test-purpose: dryrun-full-workload-prediction
+    pre6g.io/production-result: "false"
+    pre6g.io/full-workload-fixed: "true"
+    pre6g.io/dryrun-capture-seconds: "120"
+
+spec:
+  backoffLimit: 0
+
+  activeDeadlineSeconds: 300
+  template:
+    metadata:
+      labels:
+        app: pre6g-unified-yolo26-5090
+
+    spec:
+      runtimeClassName: nvidia
+      restartPolicy: Never
+
+      nodeSelector:
+        kubernetes.io/hostname: mirc516-20250605
+
+      containers:
+        - name: profiler
+
+          image: ultralytics/ultralytics:8.4.104
+          imagePullPolicy: IfNotPresent
+
+          securityContext:
+            privileged: true
+
+          env:
+            - name: TASK_ID
+              value: yolo26-formal-5090-120s-002
+
+            - name: NODE_NAME
+              value: mirc516-20250605
+
+            - name: DEVICE_ID
+              value: RTX5090
+
+            - name: GPU_UUID
+              value: GPU-a4e6b1ee-8a31-991f-dc82-fdab833483c4
+
+            - name: NETDATA_URL
+              value: http://netdata.netdata.svc.cluster.local:19999/host/mirc516-20250605
+
+            - name: DCGM_URL
+              value: http://10.42.5.51:9400
+
+          resources:
+            requests:
+              cpu: "4"
+              memory: 8Gi
+              nvidia.com/gpu.shared: "1"
+
+            limits:
+              cpu: "8"
+              memory: 16Gi
+              nvidia.com/gpu.shared: "1"
+
+          volumeMounts:
+            - name: work
+              mountPath: /work
+
+            - name: artifacts
+              mountPath: /shared
+
+            - name: nsys
+              mountPath: /opt/pre6g/nsight
+              readOnly: true
+
+          command:
+            - /bin/bash
+            - -lc
+            - |
+              set -euo pipefail
+
+              REPO=/work/repo
+              DATASET=/work/dataset
+              LOCAL=/work/output
+              SHARED=/shared/results/${TASK_ID}/${NODE_NAME}
+
+              rm -rf "$REPO" "$DATASET" "$LOCAL"
+
+              mkdir -p \
+                "$REPO" \
+                "$DATASET" \
+                "$LOCAL" \
+                "$SHARED"
+
+              echo "========================================"
+              echo " PRE6G UNIFIED PROFILE JOB"
+              echo "========================================"
+
+              echo
+              echo "===== GPU ====="
+              nvidia-smi
+
+              echo
+              echo "===== NSIGHT ====="
+              /opt/pre6g/nsight/bin/nsys --version
+
+              echo
+              echo "===== FETCH PRE6G ====="
+
+              git clone \
+                https://github.com/terrychen0803/Pre6G_experiment.git \
+                "$REPO"
+
+              cd "$REPO"
+
+              git checkout \
+                97c2df54cc9e91f5c7252fd54224c5ccfc208a90
+
+              echo
+              echo "===== PRE6G COMMIT ====="
+              git rev-parse HEAD
+
+              echo
+              echo "===== CREATE DATASET ====="
+
+              python3 - <<'PY'
+              from pathlib import Path
+              from PIL import Image, ImageDraw
+
+              root = Path("/work/dataset")
+
+              for split, count in [
+                  ("train", 512),
+                  ("val", 64),
+              ]:
+                  image_dir = root / "images" / split
+                  label_dir = root / "labels" / split
+
+                  image_dir.mkdir(parents=True, exist_ok=True)
+                  label_dir.mkdir(parents=True, exist_ok=True)
+
+                  for i in range(count):
+                      color = (
+                          (i * 17) % 180 + 30,
+                          (i * 31) % 180 + 30,
+                          (i * 47) % 180 + 30,
+                      )
+
+                      image = Image.new(
+                          "RGB",
+                          (320, 320),
+                          color=color,
+                      )
+
+                      draw = ImageDraw.Draw(image)
+
+                      x0 = 100 + (i % 20)
+                      y0 = 100 + ((i * 3) % 20)
+                      x1 = x0 + 80
+                      y1 = y0 + 80
+
+                      draw.rectangle(
+                          [x0, y0, x1, y1],
+                          outline=(255, 255, 255),
+                          width=3,
+                      )
+
+                      image.save(
+                          image_dir / f"{i:05d}.jpg",
+                          quality=80,
+                      )
+
+                      xc = ((x0 + x1) / 2) / 320
+                      yc = ((y0 + y1) / 2) / 320
+                      w = (x1 - x0) / 320
+                      h = (y1 - y0) / 320
+
+                      (
+                          label_dir / f"{i:05d}.txt"
+                      ).write_text(
+                          f"0 {xc} {yc} {w} {h}\n"
+                      )
+
+              (root / "data.yaml").write_text(
+                  """
+              path: /work/dataset
+              train: images/train
+              val: images/val
+
+              names:
+                0: object
+              """.strip()
+                  + "\n"
+              )
+
+              print("train =", len(list((root/"images/train").glob("*.jpg"))))
+              print("val   =", len(list((root/"images/val").glob("*.jpg"))))
+              PY
+
+              echo
+              echo "===== TELEMETRY + NSIGHT ====="
+
+              PYTHONPATH=src python3 \
+                scripts/run_profile_with_telemetry.py \
+                --netdata-url "$NETDATA_URL" \
+                --dcgm-url "$DCGM_URL" \
+                --node "$NODE_NAME" \
+                --gpu-uuid "$GPU_UUID" \
+                --output-dir "$LOCAL/telemetry" \
+                --pre-roll-s 5 \
+                --post-roll-s 2 \
+                --interval-ms 1000 \
+                --tolerance-ms 750 \
+                --min-coverage 0.90 \
+                --max-gap-s 2.0 \
+                --accept-command-returncode 143 \
+                -- \
+                /opt/pre6g/nsight/bin/nsys profile \
+                  --trace=cuda,nvtx,osrt \
+                  --sample=none \
+                  --cpuctxsw=none \
+                  --duration=120 \
+                  --kill=sigterm \
+                  --stop-on-exit=true \
+                  --output="$LOCAL/profile" \
+                  -- \
+                  yolo detect train \
+                    model=yolo26n.yaml \
+                    data="$DATASET/data.yaml" \
+                    epochs=1639 \
+                    imgsz=320 \
+                    batch=16 \
+                    workers=0 \
+                    device=0 \
+                    pretrained=False \
+                    amp=False \
+                    plots=False \
+                    save=False \
+                    project="$LOCAL/yolo" \
+                    name=train \
+                    exist_ok=True
+
+              echo
+              echo "===== NSIGHT EXPORT ====="
+
+              /opt/pre6g/nsight/bin/nsys export \
+                --type=sqlite \
+                --output="$LOCAL/profile.sqlite" \
+                "$LOCAL/profile.nsys-rep"
+
+              echo
+              echo "===== MARKER-FREE DETECTOR ====="
+
+              PYTHONPATH=src python3 \
+                scripts/evaluate_trace_event_periods.py \
+                --sqlite "$LOCAL/profile.sqlite" \
+                --output-dir "$LOCAL/detector" \
+                --detector-profile yolo-v1
+
+              echo
+              echo "===== RUNTIME FEATURES ====="
+
+              PYTHONPATH=src python3 \
+                scripts/build_runtime_features.py \
+                --sqlite "$LOCAL/profile.sqlite" \
+                --detection-json \
+                  "$LOCAL/detector/marker-free-discovery.json" \
+                --output \
+                  "$LOCAL/runtime-features.json" \
+                --node "$NODE_NAME" \
+                --device-id "$DEVICE_ID" \
+                --workload-id yolo26-synthetic
+
+              echo
+              echo "===== PACKAGE PROFILE RESULT ====="
+
+              PYTHONPATH=src python3 \
+                scripts/package_profile_result.py \
+                --task-id "$TASK_ID" \
+                --node "$NODE_NAME" \
+                --device-id "$DEVICE_ID" \
+                --detection-json \
+                  "$LOCAL/detector/marker-free-discovery.json" \
+                --runtime-features-json \
+                  "$LOCAL/runtime-features.json" \
+                --output \
+                  "$LOCAL/profile-result.json"
+
+              echo
+              echo "===== COPY SHARED ARTIFACTS ====="
+
+              cp \
+                "$LOCAL/detector/marker-free-discovery.json" \
+                "$SHARED/marker-free-discovery.json"
+
+              cp \
+                "$LOCAL/runtime-features.json" \
+                "$SHARED/runtime-features.json"
+
+              cp \
+                "$LOCAL/profile-result.json" \
+                "$SHARED/profile-result.json"
+
+              rm -rf "$SHARED/telemetry"
+              mkdir -p "$SHARED/telemetry"
+
+              cp \
+                "$LOCAL/telemetry/"* \
+                "$SHARED/telemetry/"
+
+              echo
+              echo "===== FINAL ARTIFACTS ====="
+
+              find "$SHARED" \
+                -maxdepth 2 \
+                -type f \
+                -printf '%p %k KB\n' \
+                | sort
+
+              echo
+              echo "UNIFIED PROFILE JOB PASS"
+
+      volumes:
+        - name: work
+          emptyDir: {}
+
+        - name: artifacts
+          persistentVolumeClaim:
+            claimName: pre6g-artifacts
+
+        - name: nsys
+          hostPath:
+            path: /opt/nvidia/nsight-systems-cli/2026.4.1
+            type: Directory
