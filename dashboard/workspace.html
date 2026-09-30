@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>任務工作台 · Pre6G</title>
+  <link rel="stylesheet" href="workspace.css">
+  <script src="workspace.js" defer></script>
+</head>
+<body>
+  <header class="app-header">
+    <a class="brand" href="workspace.html"><span class="brand-mark">P6</span><span><strong>Pre6G</strong><small>智慧運算平台</small></span></a>
+    <div class="account"><span class="workspace-name">Vision Lab / 團隊工作區</span><span class="avatar" aria-label="示意使用者：陳小姐">陳</span></div>
+  </header>
+  <div class="app-layout">
+    <aside class="sidebar">
+      <p class="nav-caption">WORKSPACE</p>
+      <nav aria-label="主要導覽">
+        <a class="nav-link selected" href="workspace.html" aria-current="page"><span aria-hidden="true">▦</span> 任務工作台</a>
+        <a class="nav-link" href="index.html"><span aria-hidden="true">↗</span> 實驗成果總覽</a>
+      </nav>
+      <div class="sidebar-note"><span class="status-dot"></span> 介面概念展示<p>探索任務從提交到完成的使用體驗。</p></div>
+    </aside>
+    <main>
+      <div class="preview-bar"><span><strong>客戶使用情境</strong> · 任務、負載與進度為示意，未連接運算服務</span><a href="https://github.com/terrychen0803/Pre6G_experiment/blob/main/dashboard/README.md">展示說明 ↗</a></div>
+      <div class="page-heading"><div><p class="eyebrow">我的任務 <span aria-hidden="true">/</span> CV-2026-014</p><h1>讓每一次訓練，找到合適的節點。</h1><p class="subheading">提交運算任務後，在這裡查看分析進度、節點選擇與執行狀態。</p></div><button class="button muted-button" type="button" disabled>＋ 新增任務（展示）</button></div>
+
+      <div class="scenario-bar"><span class="scenario-label">切換展示情境</span><div class="scenario-buttons" role="group" aria-label="任務展示情境">
+        <button type="button" data-scenario="profiling" aria-pressed="false">分析中</button>
+        <button type="button" data-scenario="selected" aria-pressed="true">已選點</button>
+        <button type="button" data-scenario="running" aria-pressed="false">執行中</button>
+        <button type="button" data-scenario="completed" aria-pressed="false">已完成</button>
+        <button type="button" data-scenario="blocked" aria-pressed="false">待確認</button>
+      </div></div>
+
+      <article class="task-card">
+        <div class="task-heading"><div class="task-identity"><span class="task-monogram" aria-hidden="true">CV</span><div><p class="eyebrow">電腦視覺 · 模型訓練</p><h2>產線瑕疵辨識模型訓練</h2><p class="task-id">CV-2026-014 · 陳小姐提交 · 今日 14:30</p></div></div><span class="badge green" id="task-status">已選定節點</span></div>
+        <dl class="task-facts"><div><dt>模型 / 框架</dt><dd>YOLO26 / PyTorch</dd></div><div><dt>資料集</dt><dd>瑕疵影像 · 512 張</dd></div><div><dt>訓練設定</dt><dd>30 epochs · batch 16</dd></div><div><dt>資源需求</dt><dd>1 份共享 GPU 配額</dd></div><div><dt>配置偏好</dt><dd><span class="preference">節能優先</span></dd></div></dl>
+        <ol class="journey" aria-label="任務生命週期">
+          <li data-step="0"><span class="step-circle">1</span><span><strong>接收任務</strong><small>確認需求與資料</small></span></li>
+          <li data-step="1"><span class="step-circle">2</span><span><strong>分析候選節點</strong><small>預估時間與能耗</small></span></li>
+          <li data-step="2"><span class="step-circle">3</span><span><strong>選定節點</strong><small>依任務偏好配置</small></span></li>
+          <li data-step="3"><span class="step-circle">4</span><span><strong>執行訓練</strong><small>追蹤任務進度</small></span></li>
+          <li data-step="4"><span class="step-circle">5</span><span><strong>任務完成</strong><small>查看成果與紀錄</small></span></li>
+        </ol>
+      </article>
+
+      <div class="workspace-grid">
+        <div class="primary-column">
+          <section class="decision-panel" aria-labelledby="decision-heading">
+            <div class="decision-header"><span class="eyebrow" id="decision-kicker">配置結果</span><span class="badge green" id="decision-badge">符合節能偏好</span></div>
+            <h2 id="decision-heading">已為你選擇 RTX4090</h2>
+            <p id="decision-description">此任務在 RTX4090 的預測訓練時間與能耗較低，平台依「節能優先」偏好選擇此節點。</p>
+            <div class="selected-machine"><span class="machine-mark" aria-hidden="true">GPU</span><div><strong id="selected-node">iccl-s3-251230</strong><small id="selected-node-detail">RTX4090 · 共享 GPU 節點</small></div><span class="machine-state" id="machine-state">等待任務啟動</span></div>
+            <div class="prediction-grid"><div><span>預測訓練時間</span><strong id="predicted-time">60.8 <small>秒</small></strong></div><div><span>預測節點能耗</span><strong id="predicted-energy">21.54 <small>kJ</small></strong></div><div><span>相較另一候選節點</span><strong id="predicted-saving">−62.3<small>% 能耗</small></strong></div></div>
+            <p class="prediction-note">預測範圍為 steady training（960 次迭代），不含啟動、驗證與存檔耗時；能耗為節點總能耗預測。</p>
+          </section>
+
+          <section class="panel execution-panel" aria-labelledby="execution-heading">
+            <div class="section-heading"><h2 id="execution-heading">接下來：啟動訓練</h2><span class="subtle-tag" id="progress-tag">等待執行</span></div>
+            <p class="panel-description" id="execution-description">節點配置已完成，任務即將在 RTX4090 上啟動。</p>
+            <div class="progress-heading"><span id="progress-label">訓練進度</span><strong id="progress-value">0 / 960 次迭代</strong></div>
+            <div class="progress-track" id="task-progress" role="progressbar" aria-label="示意訓練進度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="progress-fill"></div></div>
+            <div class="progress-footer"><span id="elapsed-label">尚未開始</span><span id="remaining-label">預測 steady training 60.8 秒</span></div>
+            <div class="result-notice" id="result-notice" hidden><strong>訓練成果已就緒</strong><span>best.pt · 訓練摘要 · 執行紀錄</span><small>成果檔名為展示用，未生成可下載檔案。</small></div>
+            <p class="live-announcement" id="scenario-announcement" role="status" aria-live="polite">展示情境：已選點。已為你選擇 RTX4090。</p>
+          </section>
+
+          <section class="panel" aria-labelledby="comparison-heading">
+            <div class="section-heading"><div><h2 id="comparison-heading">為什麼選這個節點？</h2><p class="panel-description">相同任務與工作量，對照候選節點的預測結果。</p></div><span class="subtle-tag">2 個候選節點</span></div>
+            <div class="comparison-wrap"><table class="comparison-table"><caption class="sr-only">同一個 960 次迭代任務的節點比較，數值為預測，非執行實測</caption><thead><tr><th scope="col">節點</th><th scope="col">選點前 GPU 負載</th><th scope="col">預測訓練時間</th><th scope="col">預測能耗</th><th scope="col">配置結果</th></tr></thead><tbody>
+              <tr id="candidate-4090"><th scope="row"><strong>RTX4090</strong><small>iccl-s3-251230</small></th><td><span>28%</span><span class="mini-meter"><i style="width:28%"></i></span></td><td data-prediction="60.8 s">60.8 s</td><td data-prediction="21.54 kJ">21.54 kJ</td><td><span class="choice-label" id="choice-4090">✓ 已選擇</span></td></tr>
+              <tr><th scope="row"><strong>RTX5090</strong><small>mirc516-20250605</small></th><td><span>82%</span><span class="mini-meter warm"><i style="width:82%"></i></span></td><td data-prediction="123.6 s">123.6 s</td><td data-prediction="57.15 kJ">57.15 kJ</td><td><span id="choice-5090">未選擇</span></td></tr>
+            </tbody></table></div>
+            <p class="comparison-note">負載為選點前的示意快照。平台以此任務的時間與能耗預測比較，GPU 型號或利用率並非唯一選點依據。</p>
+          </section>
+        </div>
+
+        <div class="secondary-column">
+          <section class="panel" aria-labelledby="load-heading"><div class="section-heading"><h2 id="load-heading">節點目前負載</h2><span class="subtle-tag">示意快照</span></div>
+            <div class="load-node"><div class="load-node-title"><strong>RTX4090</strong><span id="load-state-4090">待執行</span></div><small class="node-host">iccl-s3-251230</small><div class="load-metric"><span>GPU 利用率</span><strong id="gpu-load-4090">28%</strong></div><meter id="gpu-meter-4090" min="0" max="100" value="28" aria-label="RTX4090 示意 GPU 利用率">28%</meter><div class="load-metric secondary-metric"><span>記憶體使用率</span><strong id="memory-4090">34%</strong></div><div class="load-metric secondary-metric"><span>執行中的任務</span><strong id="jobs-4090">1 個</strong></div></div>
+            <div class="load-node"><div class="load-node-title"><strong>RTX5090</strong><span>使用中</span></div><small class="node-host">mirc516-20250605</small><div class="load-metric"><span>GPU 利用率</span><strong>82%</strong></div><meter class="warm" min="0" max="100" value="82" aria-label="RTX5090 示意 GPU 利用率">82%</meter><div class="load-metric secondary-metric"><span>記憶體使用率</span><strong>71%</strong></div><div class="load-metric secondary-metric"><span>執行中的任務</span><strong>3 個</strong></div></div>
+            <p class="comparison-note">負載包含同節點上的其他任務。</p>
+          </section>
+          <section class="panel activity-panel" aria-labelledby="activity-heading"><div class="section-heading"><h2 id="activity-heading">任務動態</h2><span class="subtle-tag">示意紀錄</span></div><ol id="activity-list" class="activity-list"></ol></section>
+          <details class="task-details"><summary>檢視提交設定</summary><dl><div><dt>提交檔案</dt><dd>defect-training.yaml</dd></div><div><dt>工作類型</dt><dd>模型訓練</dd></div><div><dt>預估工作量</dt><dd>30 × ceil(512 / 16) = 960</dd></div><div><dt>執行環境</dt><dd>團隊 GPU 叢集</dd></div></dl></details>
+        </div>
+      </div>
+      <footer class="prototype-footer"><strong>設計示意</strong><p>此頁呈現未來產品體驗。時間與能耗數字參考既有研究比較，其餘任務、負載、進度與完成紀錄均為虛構。研究模型仍有 OOD／validation_required 限制；頁面中的選點與執行狀態不代表正式服務已上線。</p><a href="index.html">查看目前的實驗證據與驗證範圍 ↗</a></footer>
+    </main>
+  </div>
+</body>
+</html>

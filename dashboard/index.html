@@ -80,7 +80,7 @@
       text-transform: uppercase;
     }
     .nav { display: grid; gap: 6px; }
-    .nav button {
+    .nav button, .nav a {
       width: 100%;
       border: 0;
       border-radius: 10px;
@@ -88,8 +88,10 @@
       color: var(--muted);
       padding: 10px 12px;
       text-align: left;
+      text-decoration: none;
+      font: inherit;
     }
-    .nav button:hover, .nav button[aria-selected="true"] {
+    .nav button:hover, .nav a:hover, .nav button[aria-selected="true"] {
       background: var(--surface-2);
       color: var(--ink);
     }
@@ -165,7 +167,7 @@
       aside { padding: 16px 20px 0; }
       .nav-label { display: none; }
       .nav { display: flex; overflow-x: auto; }
-      .nav button { width: auto; white-space: nowrap; }
+      .nav button, .nav a { width: auto; white-space: nowrap; }
       .metric-grid { grid-template-columns: repeat(2, 1fr); }
       .two-col { grid-template-columns: 1fr; }
     }
@@ -196,6 +198,7 @@
           <button type="button" aria-selected="true" data-target="overview">總覽</button>
           <button type="button" aria-selected="false" data-target="runtime">Runtime 實驗</button>
           <button type="button" aria-selected="false" data-target="power">Power 與限制</button>
+          <a href="workspace.html">客戶任務工作台 ↗</a>
         </nav>
       </aside>
 

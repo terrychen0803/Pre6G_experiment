@@ -118,4 +118,4 @@ python scripts/provisional_rank_nodes.py --input docs/evidence/formal-cross-node
 
 開啟 `dashboard/index.html` 可查看目前流程、實驗證據與 production blockers 的靜態介面示意。內容來自 repository 中已紀錄的 evidence snapshot，不是即時 cluster dashboard。
 
-GitHub 的 HTML 檔案頁只顯示原始碼；請 clone 或下載 repository 後，用瀏覽器開啟本機檔案。GitHub Pages 尚未設定。介面內容與資料來源見 [dashboard 使用說明](../dashboard/README.md)。
+線上可直接開啟 [客戶任務工作台](https://terrychen0803.github.io/Pre6G_experiment/) 或 [實驗成果總覽](https://terrychen0803.github.io/Pre6G_experiment/dashboard/index.html)。GitHub Pages 自動發布靜態介面，與 runner 分開。也可下載 repository 後用瀏覽器離線開啟。介面内容、資料來源及部署說明見 [dashboard 使用說明](../dashboard/README.md)。

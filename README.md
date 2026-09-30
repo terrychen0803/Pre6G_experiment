@@ -1,5 +1,9 @@
 # Pre6G Experiment
 
+[線上客戶任務工作台](https://terrychen0803.github.io/Pre6G_experiment/) · [線上實驗成果總覽](https://terrychen0803.github.io/Pre6G_experiment/dashboard/index.html)
+
+以上為可分享的靜態展示頁，無需本機安裝；未連接 GPU 叢集或實驗 runner。
+
 在 k3s 上執行「Generic workload intake → marker-free dry-run profiling → runtime / power prediction → energy-aware placement → production ground truth」的整合與驗證平台。
 
 YOLO26 只是目前第一個 integration fixture；平台核心不假設使用者一定是 YOLO、AI training，或一定使用 iteration 作為 work unit。
@@ -377,6 +381,7 @@ python scripts/align_telemetry.py --help
 - [整合執行程式](scripts/run_experiment_pipeline.py)：串接現有實驗腳本，輸出 JSON、各階段 log 與選定節點的 Job YAML；不會自動提交 Kubernetes Job。
 - [完整使用說明](docs/unified-workflow.md)：安裝、Windows／Linux 範例、profile 輸入、選用 power 推論、續跑限制與錯誤排查。
 - [靜態展示介面使用說明](dashboard/README.md)：下載後用瀏覽器開啟 `dashboard/index.html`。介面與 runner 獨立，數據不會自動更新。
+- [客戶任務工作台示意](dashboard/workspace.html)：展示任務需求、分析進度、節點負載與選點結果；可切換五種固定情境，下載時請保留整個 `dashboard/` 目錄。
 - [平台目的與實驗盤點](docs/project-assessment-zh.md)：已完成項目、資料來源與待驗證範圍。
 
 The previously separate experiment commands can now be executed as one
