@@ -50,8 +50,8 @@ class ProvisionalRankingTests(unittest.TestCase):
             places=6,
         )
 
-        self.assertTrue(ranked[0]["power_ood"])
-        self.assertTrue(ranked[1]["power_ood"])
+        self.assertTrue(ranked[0]["power_range_exceeded"])
+        self.assertTrue(ranked[1]["power_range_exceeded"])
 
 
 if __name__ == "__main__":
