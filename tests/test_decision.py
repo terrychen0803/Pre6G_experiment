@@ -212,7 +212,8 @@ class DecisionTests(unittest.TestCase):
                 "steady_power_w": power,
                 "idle_power_w": idle,
                 "confidence": confidence,
-                "ood": False,
+                "range_exceeded": False,
+                "range_warnings": [],
                 "missing_features": [],
             },
             "quality": {
@@ -296,6 +297,24 @@ class DecisionTests(unittest.TestCase):
 
         self.assertFalse(ranked)
         self.assertIn("alignment coverage", rejected["worker-5090"])
+
+
+    def test_power_scaler_range_warning_does_not_reject_node(self):
+        item = self._node("worker-5090", 40, 400, 90)
+        item["power"]["range_exceeded"] = True
+        item["power"]["range_warnings"] = [
+            "GPU Power(W) exceeds scaler reference range"
+        ]
+
+        ranked, rejected = rank_nodes(
+            {"nodes": [item]},
+            100,
+            work_unit="training_iteration",
+        )
+
+        self.assertFalse(rejected)
+        self.assertEqual(len(ranked), 1)
+        self.assertEqual(ranked[0].node, "worker-5090")
 
     def test_trapezoid_power_integration(self):
         samples = [
