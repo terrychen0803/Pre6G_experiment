@@ -31,8 +31,7 @@ python scripts/predict_power_eq.py \
   examples/power/pdu1-outlet7-rtx5090-sample.json \
   --model models/power/bundles/pdu1-outlet7-20260416-20260612/model.onnx \
   --scaler models/power/bundles/pdu1-outlet7-20260416-20260612/scaler.json \
-  --output generated/pdu1-outlet7-rtx5090-predictions.json \
-  --reject-ood
+  --output generated/pdu1-outlet7-rtx5090-predictions.json
 ```
 
 For aligned Netdata/DCGM data and a platform-compatible smoke summary, use:
@@ -42,8 +41,7 @@ python scripts/predict_power_from_aligned_telemetry.py \
   --aligned-telemetry aligned-telemetry.json \
   --bundle-dir models/power/bundles/pdu1-outlet7-20260416-20260612 \
   --output-series generated/rtx5090-power-series.json \
-  --output-summary generated/rtx5090-power-summary.json \
-  --reject-ood
+  --output-summary generated/rtx5090-power-summary.json
 ```
 
 ## Validation status
@@ -53,9 +51,7 @@ The node/GPU association is recorded. The model owner confirmed that
 whole-node wall power rather than NVIDIA GPU power, so the target is recorded
 as `node-total-power`.
 
-The bundle remains `validation_required` because held-out
-validation metrics, missing-value policy, and a formal OOD policy are not yet
-frozen. It is therefore not yet eligible for automatic energy ranking.
+The bundle remains `validation_required` because held-out validation metrics and the missing-value policy are not yet frozen. Scaler min/max bounds are not treated as an OOD detector or rejection gate.
 
 The original Notebook is retained for provenance. Its sample-data JSON was not
 supplied, several comments are encoding-damaged, and its plot title mistakenly
@@ -76,6 +72,19 @@ An idle-power baseline is not required for this primary metric. If a future
 study estimates task-incremental energy on a loaded node, it must use a
 separately validated background-only counterfactual rather than assuming
 machine idle power is the correct baseline.
+
+
+## Scaler-range policy
+
+The model owner clarified that the original model test path does not implement
+OOD detection. The min/max values in `scaler.json` are preprocessing/data
+reference bounds. Inputs outside those bounds are still passed to the ONNX
+model without clipping.
+
+Pre6G records such cases as `range_exceeded` diagnostics only. They do not
+invalidate the model output and do not by themselves block energy ranking.
+Historical `ood=true` labels produced by the integration layer should be read
+as scaler-range exceedance rather than model-native OOD detection.
 
 ## Artifact integrity
 
