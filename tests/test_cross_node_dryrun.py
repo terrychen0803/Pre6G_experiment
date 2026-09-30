@@ -19,6 +19,7 @@ assert SPEC and SPEC.loader
 DRYRUN = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(DRYRUN)
 CONFIG = ROOT / "examples/yolo26/cross-node-dryrun.yaml"
+FORMAL_CONFIG = ROOT / "examples/yolo26/formal-cross-node-dryrun.yaml"
 COMMIT = "767756535d215293f7c6d96b65ae0c07134248c0"
 
 
@@ -47,6 +48,19 @@ class CrossNodeDryrunTests(unittest.TestCase):
             self.assertEqual(env["TASK_ID"], "test-run-001")
             self.assertEqual(job["metadata"]["labels"]["pre6g.io/candidate-node"], env["NODE_NAME"])
             self.assertEqual(env["DCGM_URL"], "DCGM_ENDPOINT_UNRESOLVED")
+
+    def test_formal_plan_preserves_full_workload_but_caps_capture_at_120_seconds(self):
+        plan, jobs, _ = DRYRUN.prepare(FORMAL_CONFIG, run_id="formal-test-001", worker_commit=COMMIT)
+        self.assertEqual(plan["experiment_stage"], "formal-experiment")
+        self.assertEqual(plan["test_purpose"], "dryrun-full-workload-prediction")
+        self.assertTrue(plan["full_workload_fixed"])
+        self.assertEqual(plan["source_epochs"], 1639)
+        self.assertEqual(plan["source_total_work_units"], 52448)
+        for job in jobs:
+            self.assertEqual(job["metadata"]["annotations"]["pre6g.io/experiment-stage"], "formal-experiment")
+            command = job["spec"]["template"]["spec"]["containers"][0]["command"][2]
+            self.assertIn("epochs=1639", command)
+            self.assertIn("--duration=120", command)
 
     def test_control_side_power_dependencies_load_before_cluster_execution(self):
         plan, _, _ = DRYRUN.prepare(CONFIG, run_id="test-run-001", worker_commit=COMMIT)
