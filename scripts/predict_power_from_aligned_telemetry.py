@@ -26,8 +26,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
             "Run a power-model smoke from aligned Netdata/DCGM telemetry. "
-            "The result remains validation_required until the bundle is bound "
-            "to a node/GPU and target/idle-power semantics are verified."
+            "Scaler-range exceedance is reported as a diagnostic only and "
+            "does not block model inference."
         )
     )
     parser.add_argument("--aligned-telemetry", type=Path, required=True)
@@ -35,7 +35,6 @@ def main() -> None:
     parser.add_argument("--output-series", type=Path, required=True)
     parser.add_argument("--output-summary", type=Path, required=True)
     parser.add_argument("--alignment-quality", type=Path)
-    parser.add_argument("--reject-ood", action="store_true")
     args = parser.parse_args()
 
     bundle = args.bundle_dir.resolve()
@@ -44,11 +43,10 @@ def main() -> None:
     required_features = list(scaler["feature_cols"])
 
     records = load_records(args.aligned_telemetry)
-    predicted_rows, ood_messages = predict_records(
+    predicted_rows, range_warnings = predict_records(
         records,
         bundle / "model.onnx",
         bundle / "scaler.json",
-        reject_out_of_domain=args.reject_ood,
     )
 
     alignment_quality = None
@@ -61,7 +59,7 @@ def main() -> None:
         manifest=manifest,
         required_features=required_features,
         predicted_rows=predicted_rows,
-        ood_messages=ood_messages,
+        range_warnings=range_warnings,
         alignment_quality=alignment_quality,
     )
 
