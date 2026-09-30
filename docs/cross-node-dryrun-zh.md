@@ -1,5 +1,7 @@
 # 多節點同時 dry-run → master 預測 → 排名
 
+> **目前這組 YOLO26 120 秒 YAML 是 functional/integration validation fixture。** 它用來驗證 cross-node profiling、NFS、collector、runtime/power inference 與 ranking 的程式資料流，不是正式 30–50 分鐘 workload 的研究結果。`examples/yolo26/validation-source-job.yaml` 保留舊檔名以避免破壞既有引用，但 YAML annotations 已明確標示 `pre6g.io/experiment-stage: functional-validation`、`pre6g.io/test-purpose: cross-node-pipeline-integration`、`pre6g.io/production-result: "false"`。
+
 目前 4090／5090 的 preflight 與 smoke 驗證紀錄見 [cross-node preflight/smoke evidence](evidence/cross-node-preflight-smoke-20261001.md)。這些檢查尚未包含 120 秒 profiling、預測排名或長時間訓練。
 
 `scripts/run_experiment_pipeline.py --mode cross-node` 將原本人工銜接的階段串起來。它適用於目前已驗證的 YOLO26 120 秒 profile fixture；尚不是通用 Kubernetes controller。示範設定在 `examples/yolo26/cross-node-dryrun.yaml`，分別綁定 RTX4090、RTX5090 的 Profile Job 模板、runtime model 和 node-bound power bundle。
@@ -37,7 +39,7 @@ python scripts/run_experiment_pipeline.py \
 
 請先檢查 `cross-node-plan.json`、`dryrun-jobs.yaml`、`collector-pod.yaml`：特別是 kube context、namespace、PVC、候選節點 hostname、`collector_node`、GPU UUID、Netdata URL、影像、Nsight mount、權限，以及目前節點是否可承擔同時 profiling。Master/collector node 必須 Ready、無 DiskPressure、能掛載 `pre6g-artifacts` 的 RWX NFS，且目前 collector manifest 沒有 tolerations，因此 master 若有 `NoSchedule`／`NoExecute` taint，preflight 會直接失敗並要求先明確處理叢集排程政策。計畫檔中的 `DCGM_ENDPOINT_UNRESOLVED` 是刻意保留的安全標記，**不可直接提交 `dryrun-jobs.yaml`**；正式執行時才會依 `dcgm_exporter` 設定尋找每個節點上 Running/Ready 的 exporter Pod，將當時的 Pod IP 寫入 `dryrun-jobs-resolved.yaml`，並以此檔做 server-side dry-run 與提交。示範 Profile Job 會以 `privileged: true` 存取 Nsight；叢集政策不允許時，需先調整經驗證的模板。執行前也需確認本機 power ONNX dependencies 已安裝，並留意模型目前仍為 research provisional。
 
-第二階段可先在**同一輸出目錄**執行唯讀叢集檢查；它會解析 DCGM Pod IP，產出 `dryrun-jobs-resolved.yaml` 與 `dcgm-endpoints.json`，並做 Kubernetes server-side dry-run，**不建立任何叢集資源**：
+第二階段可先在**同一輸出目錄**執行唯讀叢集檢查。Preflight 現在會在建立任何 GPU Job 前先驗證 control-side `numpy`／`onnxruntime`、`CPUExecutionProvider`、每個 power bundle 的 `scaler.json`，並實際用 ONNX Runtime 載入 `model.onnx`；缺少 `requirements-power-model.txt` 依賴時會直接失敗，不再等 120 秒 profiling 完成後才發現。之後才會解析 DCGM Pod IP，產出 `dryrun-jobs-resolved.yaml` 與 `dcgm-endpoints.json`，並做 Kubernetes server-side dry-run，**不建立任何叢集資源**：
 
 ```bash
 python scripts/run_experiment_pipeline.py \
@@ -122,3 +124,9 @@ python scripts/run_experiment_pipeline.py \
 
 後續 Job 部署及每五分鐘平均 PDU 的比較步驟見 [YOLO26 長跑驗證](yolo26-longrun-validation-zh.md)。本功能不會讀取或修改外部 PDU 網站；PDU CSV 仍需在完整訓練後匯出。
 
+
+## Functional validation 完成條件與 formal experiment 邊界
+
+目前功能性測試的 merge gate 定義為：使用新的 run ID 從 `--execute` 單次啟動後，不需要人工補套件或呼叫私有 `_predict()`，即可依序完成兩個 candidate 120 秒 profiling、master collector、runtime inference、power inference、`ranking-input.json` 與 `provisional-ranking.json`。這個 clean unattended run 通過後，即可把本 branch 視為 functional/integration validation 完成並合併到 `main`。
+
+正式研究流程會另行建立，不能直接沿用此 30 epochs / 960 iterations fixture 當論文 runtime 準確率結果。Formal experiment 的目標是：**原始完整 workload 本身約需 30–50 分鐘，只執行前 120 秒 dry-run，再用預測的 per-iteration runtime × 原始完整 workload work units 預測全程 runtime／energy，最後完整執行相同 workload 取得 ground truth。**
