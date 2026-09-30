@@ -1,3 +1,4 @@
+# Functional/integration validation fixture only. Not the formal 30-50 minute experiment.
 schema_version: pre6g.cross-node-dryrun-config/v1
 namespace: experiments
 source_job: examples/yolo26/validation-source-job.yaml
