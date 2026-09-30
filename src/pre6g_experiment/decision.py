@@ -84,8 +84,12 @@ def _reject_reason(
         if not quality.get("hardware_trace", False):
             return "shared GPU trace is not a CUDA hardware trace"
 
-    if runtime.get("ood", True) or power.get("ood", True):
-        return "runtime or power model rejected the sample as OOD"
+    if runtime.get("ood", True):
+        return "runtime model rejected the sample as OOD"
+
+    # Power-model scaler min/max bounds are diagnostic reference ranges only.
+    # A power range_exceeded warning does not reject an otherwise valid
+    # node-bound power prediction.
 
     if float(runtime.get("confidence", 0)) < min_confidence:
         return "runtime confidence below threshold"
