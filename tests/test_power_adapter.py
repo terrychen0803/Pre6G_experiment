@@ -106,7 +106,7 @@ class PowerAdapterTests(unittest.TestCase):
                 {"timestamp_ns": 0, "PREDICTED_POWER_W": 400.0},
                 {"timestamp_ns": 1_000_000_000, "PREDICTED_POWER_W": 410.0},
             ],
-            ood_messages=[],
+            range_warnings=[],
             alignment_quality={"pass": True},
         )
         self.assertEqual(result["status"], "ready")
@@ -138,13 +138,53 @@ class PowerAdapterTests(unittest.TestCase):
                 {"timestamp_ns": 0, "PREDICTED_POWER_W": 100.0},
                 {"timestamp_ns": 1_000_000_000, "PREDICTED_POWER_W": 110.0},
             ],
-            ood_messages=[],
+            range_warnings=[],
             alignment_quality={"pass": True},
         )
         self.assertEqual(result["status"], "validation_required")
         self.assertFalse(result["ranking_eligible"])
         self.assertIn("Kubernetes node binding is missing", result["blockers"])
         self.assertIn("power target semantics are not verified", result["blockers"])
+
+
+    def test_scaler_range_warning_does_not_block_readiness(self):
+        manifest = {
+            "status": "ready",
+            "model_id": "demo",
+            "model_version": "1.0.0",
+            "model_format": "onnx",
+            "node_binding": {
+                "kubernetes_node": "worker-5090",
+                "gpu_uuid": "GPU-demo",
+                "gpu_model": "NVIDIA GeForce RTX 5090",
+            },
+            "target": {
+                "source_field": "ACTUAL_POWER_W",
+                "semantics": "node-total-power",
+                "semantics_verified": True,
+                "unit": "W",
+            },
+        }
+        result = build_power_smoke_result(
+            manifest=manifest,
+            required_features=["CPU User%", "GPU Power(W)"],
+            predicted_rows=[
+                {"timestamp_ns": 0, "PREDICTED_POWER_W": 400.0},
+                {"timestamp_ns": 1_000_000_000, "PREDICTED_POWER_W": 410.0},
+            ],
+            range_warnings=[
+                "row 0: GPU Power(W)=450 outside scaler reference range [0, 414.48]"
+            ],
+            alignment_quality={"pass": True},
+        )
+        self.assertEqual(result["status"], "ready")
+        self.assertTrue(result["ranking_eligible"])
+        self.assertTrue(result["range_exceeded"])
+        self.assertEqual(len(result["range_warnings"]), 1)
+        self.assertNotIn(
+            "telemetry contains out-of-domain feature values",
+            result["blockers"],
+        )
 
 
 if __name__ == "__main__":
