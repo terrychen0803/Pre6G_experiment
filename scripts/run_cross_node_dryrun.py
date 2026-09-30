@@ -207,6 +207,15 @@ def prepare(config_path: Path, *, run_id: str, worker_commit: str) -> tuple[dict
     namespace = _name(str(config["namespace"]), "namespace")
     pvc = _name(str(config["artifact_pvc"]), "artifact_pvc")
     collector_node = _name(str(config["collector_node"]), "collector_node")
+    experiment_stage = str(config.get("experiment_stage", "functional-validation"))
+    test_purpose = str(config.get("test_purpose", "cross-node-pipeline-integration"))
+    production_result = config.get("production_result", False)
+    if experiment_stage not in {"functional-validation", "formal-experiment"}:
+        raise ValueError("experiment_stage must be functional-validation or formal-experiment")
+    if not test_purpose:
+        raise ValueError("test_purpose must be non-empty")
+    if production_result is not False:
+        raise ValueError("cross-node research fixtures must keep production_result=false")
     exporter = config.get("dcgm_exporter") or {}
     exporter_namespace = _name(str(exporter.get("namespace", "gpu-monitoring")), "DCGM exporter namespace")
     exporter_selector = str(exporter.get("label_selector", "app.kubernetes.io/name=dcgm-exporter"))
@@ -218,22 +227,44 @@ def prepare(config_path: Path, *, run_id: str, worker_commit: str) -> tuple[dict
     if source.get("apiVersion") != "batch/v1" or source.get("kind") != "Job":
         raise ValueError("source_job must be batch/v1 Job")
     source_annotations = source.get("metadata", {}).get("annotations", {})
-    if (source_annotations.get("pre6g.io/experiment-stage") != "functional-validation"
-            or source_annotations.get("pre6g.io/test-purpose") != "cross-node-pipeline-integration"
+    if (source_annotations.get("pre6g.io/experiment-stage") != experiment_stage
+            or source_annotations.get("pre6g.io/test-purpose") != test_purpose
             or source_annotations.get("pre6g.io/production-result") != "false"):
-        raise ValueError(
-            "source_job must be explicitly marked as the functional-validation integration fixture"
-        )
+        raise ValueError("source_job experiment annotations differ from cross-node config")
     source_work = estimate_work(source)
     if source_work.adapter != "yolo" or source_work.work_unit != "training_iteration" or source_work.total_work_units is None:
         raise ValueError("source_job must expose a known YOLO training iteration count")
     parameters = source_work.parameters
     expected_training = {
-        "model": "yolo26n.yaml", "epochs": 30, "batch_size": 16,
+        "model": "yolo26n.yaml", "batch_size": 16,
         "input_size": 320, "amp": False, "dataset_train_samples": 512,
     }
     if any(parameters.get(key) != value for key, value in expected_training.items()):
-        raise ValueError("source_job settings differ from the validated YOLO26 dry-run fixture")
+        raise ValueError("source_job settings differ from the validated YOLO26 workload family")
+    epochs = parameters.get("epochs")
+    if not isinstance(epochs, int) or epochs <= 0:
+        raise ValueError("source_job must declare a positive YOLO epoch count")
+    expected_total_units = epochs * math.ceil(
+        int(parameters["dataset_train_samples"]) / int(parameters["batch_size"])
+    )
+    if source_work.total_work_units != expected_total_units:
+        raise ValueError(
+            "source_job total work units conflict with epochs, dataset size, and batch size"
+        )
+    if experiment_stage == "functional-validation":
+        if epochs != 30:
+            raise ValueError("functional-validation fixture must remain 30 epochs")
+    else:
+        if source_annotations.get("pre6g.io/full-workload-fixed") != "true":
+            raise ValueError("formal-experiment source_job must mark pre6g.io/full-workload-fixed=true")
+        try:
+            sizing_target_minutes = float(source_annotations["pre6g.io/sizing-target-minutes"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("formal-experiment source_job must declare numeric pre6g.io/sizing-target-minutes") from exc
+        if not 30 <= sizing_target_minutes <= 50:
+            raise ValueError("formal-experiment sizing target must be between 30 and 50 minutes")
+        if not source_annotations.get("pre6g.io/sizing-reference-node"):
+            raise ValueError("formal-experiment source_job must declare pre6g.io/sizing-reference-node")
     candidates = config.get("candidates") or []
     if len(candidates) < 2:
         raise ValueError("at least two candidate nodes are required")
@@ -256,10 +287,12 @@ def prepare(config_path: Path, *, run_id: str, worker_commit: str) -> tuple[dict
         if job.get("apiVersion") != "batch/v1" or job.get("kind") != "Job":
             raise ValueError(f"{template_path}: expected batch/v1 Job")
         annotations = job.get("metadata", {}).get("annotations", {})
-        if (annotations.get("pre6g.io/experiment-stage") != "functional-validation"
-                or annotations.get("pre6g.io/test-purpose") != "cross-node-pipeline-integration"
+        if (annotations.get("pre6g.io/experiment-stage") != experiment_stage
+                or annotations.get("pre6g.io/test-purpose") != test_purpose
                 or annotations.get("pre6g.io/production-result") != "false"):
-            raise ValueError(f"{template_path}: profile template is not explicitly marked functional-validation")
+            raise ValueError(f"{template_path}: profile template experiment annotations differ from config")
+        if experiment_stage == "formal-experiment" and annotations.get("pre6g.io/full-workload-fixed") != "true":
+            raise ValueError(f"{template_path}: formal profile must preserve the fixed full-workload definition")
         if job["metadata"].get("namespace") != namespace:
             raise ValueError(f"{node}: profile template namespace differs from config")
         spec = job["spec"]["template"]["spec"]
@@ -283,12 +316,20 @@ def prepare(config_path: Path, *, run_id: str, worker_commit: str) -> tuple[dict
             raise ValueError(f"{node}: template must contain one pinned git checkout SHA")
         if "SHARED=/shared/results/${TASK_ID}/${NODE_NAME}" not in original:
             raise ValueError(f"{node}: template lacks the shared artifact path contract")
-        if "--duration=120" not in original or "model=yolo26n.yaml" not in original:
-            raise ValueError(f"{node}: template is not the validated YOLO26 120-second profile")
-        for option in ("epochs=30", "imgsz=320", "batch=16", "amp=False"):
+        if "--duration=120" not in original:
+            raise ValueError(f"{node}: template must keep the validated 120-second capture policy")
+        expected_options = (
+            f"model={parameters['model']}",
+            f"epochs={parameters['epochs']}",
+            f"imgsz={parameters['input_size']}",
+            f"batch={parameters['batch_size']}",
+            f"amp={parameters['amp']}",
+        )
+        for option in expected_options:
             if option not in original:
                 raise ValueError(f"{node}: dry-run workload differs from source Job: {option}")
-        if not re.search(r'\("train",\s*512\)', original):
+        train_samples = int(parameters["dataset_train_samples"])
+        if not re.search(rf'\("train",\s*{train_samples}\)', original):
             raise ValueError(f"{node}: dry-run synthetic dataset count differs from source Job")
         # The two node templates may differ only in node-bound env, not in the
         # profiled workload/capture command. The old checkout SHA is normalized.
@@ -359,9 +400,11 @@ def prepare(config_path: Path, *, run_id: str, worker_commit: str) -> tuple[dict
         "source_job": str(source_job),
         "source_job_sha256": _digest(source_job),
         "source_total_work_units": source_work.total_work_units,
-        "experiment_stage": "functional-validation",
-        "test_purpose": "cross-node-pipeline-integration",
+        "source_epochs": epochs,
+        "experiment_stage": experiment_stage,
+        "test_purpose": test_purpose,
         "production_result": False,
+        "full_workload_fixed": source_annotations.get("pre6g.io/full-workload-fixed") == "true",
         "config_sha256": _digest(config_path),
         "artifact_pvc": pvc,
         "dcgm_exporter": {"namespace": exporter_namespace, "label_selector": exporter_selector, "port": exporter_port},

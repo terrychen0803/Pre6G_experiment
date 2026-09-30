@@ -79,8 +79,18 @@ def plan(job: dict[str, Any], ranking: dict[str, Any], discovery: dict[str, Any]
     selected_ms = float(selected_row["predicted_runtime_ms_per_work_unit"])
     if not math.isfinite(selected_ms) or selected_ms <= 0:
         raise ValueError("selected runtime prediction must be finite and positive")
-    epochs = max(1, math.ceil(target_minutes * 60_000 / (steps * selected_ms)))
-    total_units = epochs * steps
+    annotations = job.get("metadata", {}).get("annotations", {})
+    fixed_full_workload = annotations.get("pre6g.io/full-workload-fixed") == "true"
+    if fixed_full_workload:
+        if source_units % steps != 0:
+            raise ValueError("fixed full workload total units must be divisible by steps_per_epoch")
+        epochs = source_units // steps
+        total_units = source_units
+        planning_mode = "fixed-source-workload"
+    else:
+        epochs = max(1, math.ceil(target_minutes * 60_000 / (steps * selected_ms)))
+        total_units = epochs * steps
+        planning_mode = "target-minute-sizing"
     run_hash = hashlib.sha256(f"{validation_id}:{selected}:{total_units}".encode()).hexdigest()[:8]
     jobs: list[dict[str, Any]] = []
     predicted: list[dict[str, Any]] = []
@@ -125,12 +135,17 @@ def plan(job: dict[str, Any], ranking: dict[str, Any], discovery: dict[str, Any]
         "source_job_image": image,
         "source_total_work_units": source_units,
         "steps_per_epoch": steps,
+        "planning_mode": planning_mode,
+        "source_workload_fixed": fixed_full_workload,
         "planned_epochs": epochs,
         "planned_total_work_units": total_units,
         "target_selected_node_minutes": target_minutes,
         "jobs": predicted,
         "warnings": [
             "Research-only ranking; current power bundles are validation_required.",
+            ("Formal workload is fixed before evaluation; target_minutes does not rescale epochs."
+             if fixed_full_workload else
+             "Validation planner sized epochs from target_minutes and the selected-node prediction."),
             "Duration uses steady per-iteration estimates; setup, validation and checkpoint overhead are excluded.",
             "The same workload can exceed 50 minutes on slower nodes.",
             "All-node training uses the same dataset and hyperparameters; only node pinning and Job identity differ.",

@@ -130,3 +130,9 @@ python scripts/run_experiment_pipeline.py \
 功能性測試的 merge gate 定義為：使用新的 run ID 從 `--execute` 單次啟動後，不需要人工補套件或呼叫私有 `_predict()`，即可依序完成兩個 candidate 120 秒 profiling、master collector、runtime inference、power inference、`ranking-input.json` 與 `provisional-ranking.json`。`yolo26-functional-003` 已符合此條件，因此 functional/integration validation 狀態為 **completed**。
 
 正式研究流程會另行建立，不能直接沿用此 30 epochs / 960 iterations fixture 當論文 runtime 準確率結果。Formal experiment 的目標是：**原始完整 workload 本身約需 30–50 分鐘，只執行前 120 秒 dry-run，再用預測的 per-iteration runtime × 原始完整 workload work units 預測全程 runtime／energy，最後完整執行相同 workload 取得 ground truth。**
+
+## Formal 30–50 分鐘 workload
+
+功能性 fixture 保留不變；正式流程使用獨立設定 `examples/yolo26/formal-cross-node-dryrun.yaml`。Formal source Job 固定 1639 epochs / 52448 training iterations，兩個 profile Job 也保留相同完整工作量，只讓 Nsight 在 120 秒時送出 SIGTERM。這樣 master 的 runtime aggregation 使用的是原始完整 workload work units，而不是 30-epoch functional fixture 的 960 iterations。
+
+此 formal implementation 已有單元/CI gate，但目前沒有等待 40–50 分鐘 full-run ground truth；因此不得把它描述成已驗證的 formal accuracy result。詳見 [YOLO26 正式 30–50 分鐘 dry-run 預測實驗](yolo26-formal-experiment-plan-zh.md)。
