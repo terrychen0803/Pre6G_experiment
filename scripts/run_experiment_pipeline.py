@@ -130,6 +130,22 @@ def module(*arguments: str | Path) -> list[str]:
 
 
 def build_stages(args: argparse.Namespace, output: Path) -> list[Stage]:
+    if args.mode == "validation-evaluate":
+        result = output / "validation-result.json"
+        command = py_script(
+            "evaluate_validation_runs.py",
+            "--plan", args.validation_plan,
+            "--pods-json", args.pods_json,
+            "--timestamp-column", args.timestamp_column,
+            "--power-column", args.power_column,
+            "--output", result,
+        )
+        if args.pdu_interval:
+            command.extend(["--pdu-interval", args.pdu_interval])
+        for item in args.pdu:
+            command.extend(["--pdu", item])
+        return [Stage("01-evaluate-all-node-runs", command, [result])]
+
     discovery = output / "workload-discovery.json"
     stages = [
         Stage(
@@ -165,6 +181,47 @@ def build_stages(args: argparse.Namespace, output: Path) -> list[Stage]:
                 ),
                 [selected_job, decision_report],
             )
+        )
+        return stages
+
+    if args.mode == "validation":
+        ranking = output / "provisional-ranking.json"
+        plan = output / "validation-plan.json"
+        jobs = output / "validation-jobs.yaml"
+        commands = output / "deploy-commands.txt"
+        stages.extend(
+            [
+                Stage(
+                    "02-provisional-rank",
+                    py_script(
+                        "provisional_rank_nodes.py",
+                        "--input",
+                        args.ranking_input,
+                        "--output",
+                        ranking,
+                    ),
+                    [ranking],
+                ),
+                Stage(
+                    "03-plan-all-node-training",
+                    py_script(
+                        "plan_validation_runs.py",
+                        "--job",
+                        args.job,
+                        "--ranking",
+                        ranking,
+                        "--discovery",
+                        discovery,
+                        "--validation-id",
+                        args.validation_id,
+                        "--target-minutes",
+                        str(args.target_minutes),
+                        "--output-dir",
+                        output,
+                    ),
+                    [plan, jobs, commands],
+                ),
+            ]
         )
         return stages
 
@@ -304,8 +361,6 @@ def build_stages(args: argparse.Namespace, output: Path) -> list[Stage]:
         )
         if alignment_quality is not None:
             power_command.extend(["--alignment-quality", str(alignment_quality)])
-        if args.reject_ood:
-            power_command.append("--reject-ood")
         stages.append(Stage("08-predict-power", power_command, [series, summary]))
 
     if args.node_results is not None:
@@ -342,12 +397,21 @@ def parser() -> argparse.ArgumentParser:
             "write a machine-readable run summary."
         )
     )
-    root.add_argument("--mode", choices=("demo", "profile"), default="demo")
-    root.add_argument("--job", type=Path, required=True)
+    root.add_argument("--mode", choices=("demo", "profile", "validation", "validation-evaluate"), default="demo")
+    root.add_argument("--job", type=Path)
     root.add_argument("--output-dir", type=Path, required=True)
     root.add_argument("--resume", action="store_true")
     root.add_argument("--node-results", type=Path)
     root.add_argument("--allow-synthetic", action="store_true")
+    root.add_argument("--ranking-input", type=Path)
+    root.add_argument("--validation-id")
+    root.add_argument("--target-minutes", type=float, default=40.0)
+    root.add_argument("--validation-plan", type=Path)
+    root.add_argument("--pods-json", type=Path)
+    root.add_argument("--pdu", action="append", default=[])
+    root.add_argument("--pdu-interval", choices=("start", "end"))
+    root.add_argument("--timestamp-column", default="timestamp")
+    root.add_argument("--power-column", default="power_w")
 
     root.add_argument("--sqlite", type=Path)
     root.add_argument("--node")
@@ -365,11 +429,20 @@ def parser() -> argparse.ArgumentParser:
     root.add_argument("--netdata-telemetry", type=Path)
     root.add_argument("--dcgm-telemetry", type=Path)
     root.add_argument("--power-bundle", type=Path)
-    root.add_argument("--reject-ood", action="store_true")
     return root
 
 
 def validate(args: argparse.Namespace) -> None:
+    if args.mode == "validation-evaluate":
+        if args.validation_plan is None or args.pods_json is None:
+            raise ValueError("validation-evaluate requires --validation-plan and --pods-json")
+        if args.pdu and not args.pdu_interval:
+            raise ValueError("--pdu-interval is required when --pdu is provided")
+        if args.resume:
+            raise ValueError("validation-evaluate does not support --resume")
+        return
+    if args.job is None:
+        raise ValueError(f"{args.mode} mode requires --job")
     if args.mode == "demo" and args.node_results is None:
         args.node_results = ROOT / "examples" / "yolo26" / "synthetic-node-results.json"
 
@@ -381,6 +454,14 @@ def validate(args: argparse.Namespace) -> None:
         ]
         if missing:
             raise ValueError("profile mode requires: " + ", ".join(missing))
+
+    if args.mode == "validation":
+        if args.ranking_input is None or not args.validation_id:
+            raise ValueError("validation mode requires --ranking-input and --validation-id")
+        if not 30 <= args.target_minutes <= 50:
+            raise ValueError("--target-minutes must be between 30 and 50")
+        if args.resume:
+            raise ValueError("validation mode does not support --resume; use a new output directory")
 
     raw_values = (args.netdata_telemetry, args.dcgm_telemetry)
     if any(value is not None for value in raw_values) and not all(
@@ -417,6 +498,9 @@ def main() -> int:
         "netdata_telemetry",
         "dcgm_telemetry",
         "power_bundle",
+        "ranking_input",
+        "validation_plan",
+        "pods_json",
     ):
         value = getattr(args, name, None)
         if value is not None:
@@ -455,7 +539,7 @@ def main() -> int:
             "status": "completed",
             "started_at": started_at,
             "finished_at": utc_now(),
-            "job": relative(args.job, ROOT),
+            "job": relative(args.job, ROOT) if args.job is not None else None,
             "output_dir": str(output).replace("\\", "/"),
             "stages": runner.records,
         },

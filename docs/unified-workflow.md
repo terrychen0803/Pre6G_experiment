@@ -1,12 +1,12 @@
 # Unified experiment workflow
 
-`scripts/run_experiment_pipeline.py` 將原本分散執行的腳本串成單一、可續跑且有階段紀錄的流程。每次執行都會在指定目錄產生 `run-summary.json` 與各階段 log；失敗時也會保留已完成階段及錯誤原因。
+`scripts/run_experiment_pipeline.py` 將原本分散執行的腳本串成單一、有階段紀錄的流程。Demo / profile 可用 `--resume` 跳過現存輸出；validation / validation-evaluate 必須使用新輸出目錄。每次執行都會在指定目錄產生 `run-summary.json` 與各階段 log；失敗時也會保留已完成階段及錯誤原因。
 
 ## 用途與安裝
 
 | 入口 | 用途 | 執行條件 |
 |---|---|---|
-| `scripts/run_experiment_pipeline.py` | 串接現有腳本，產生實驗 artifacts、log、決策報告與 Job YAML | Python 3.10+；profile 模式需提供 trace 與模型 |
+| `scripts/run_experiment_pipeline.py` | 串接既有單節點分析；規劃 YOLO26 全節點長跑與評估 PDU CSV | Python 3.10+；profile 模式需提供 trace 與模型 |
 | `dashboard/index.html` | 展示文件中的實驗成果與平台介面示意 | 用瀏覽器直接開啟，無需 Python 或伺服器 |
 | `docs/project-assessment-zh.md` | 說明平台目的、已完成實驗與剩餘工作 | 閱讀文件 |
 
@@ -85,8 +85,7 @@ PYTHONPATH=src python scripts/run_experiment_pipeline.py \
 ```bash
 --aligned-telemetry aligned.csv \
 --alignment-quality alignment-quality.json \
---power-bundle models/power/bundles/pdu1-outlet7-20260416-20260612 \
---reject-ood
+--power-bundle models/power/bundles/pdu1-outlet7-20260416-20260612
 ```
 
 也可直接提供兩份原始 CSV，runner 會先執行 timestamp alignment 再進行 power inference：
@@ -94,17 +93,16 @@ PYTHONPATH=src python scripts/run_experiment_pipeline.py \
 ```bash
 --netdata-telemetry netdata.csv \
 --dcgm-telemetry dcgm.csv \
---power-bundle models/power/bundles/pdu1-outlet7-20260416-20260612 \
---reject-ood
+--power-bundle models/power/bundles/pdu1-outlet7-20260416-20260612
 ```
 
-Power bundle 目前仍為 `validation_required`。最新 manifest 已記錄 node / GPU UUID 綁定並確認外部電表量測的 `node-total-power` 語意；正式測試仍存在 OOD 與 held-out quality 缺口。當前排序目標為 gross node-total steady energy：功率乘上預測 steady runtime，不扣 idle power。`--reject-ood` 可能因這些已知 OOD 樣本而失敗，這是預期的 gate 行為。
+Power bundle 目前仍為 `validation_required`。最新 manifest 已記錄 node / GPU UUID 綁定並確認外部電表量測的 `node-total-power` 語意；正式測試仍缺 held-out quality 與缺值政策驗證。當前排序目標為 gross node-total steady energy：功率乘上預測 steady runtime，不扣 idle power。Power scaler 超出參考範圍只記錄 `range_exceeded` / `range_warnings`，不截斷也不以此拒絕推論；runtime OOD 是另一項獨立檢查。舊版 `--reject-ood` 已移除。
 
 ## 4. 自動節點排序的輸入邊界
 
 `--node-results` 可把已組合好的多節點結果送入現有 decision gate，通過後輸出 `production-job.yaml`。目前 repository 尚無 Kubernetes controller 去自動建立所有 candidate Profile Jobs，也尚無把 runtime、power、quality artifacts 自動組成 `node-results` 的 reconciler；這兩項仍是平台化的下一層工作，而不是本 runner 假裝已完成的功能。
 
-Runner 的排序使用原 Job 的靜態工作量語意，`--node-results` 必須與該 Job 相符；它尚未把 mounted-dataset discovery 的結果傳入 decision CLI。產出的 Job YAML 也不會自動 `kubectl apply`。範例 Job 的 image digest 是 placeholder，僅供本機 demo，不可直接部署。
+Runner 的正式排序使用原 Job 的靜態工作量語意，`--node-results` 必須與該 Job 相符；它尚未把 mounted-dataset discovery 的結果傳入 decision CLI。產出的 Job YAML 也不會自動 `kubectl apply`。`examples/yolo26/user-job.yaml` 的 image digest 是 placeholder，僅供本機 demo，不可直接部署；長跑驗證另有實驗來源 Job。
 
 最新雙節點研究排序使用另一個明確獨立的入口，保留 OOD 標記但允許實驗比較，不會修改 production gate：
 
@@ -113,6 +111,10 @@ python scripts/provisional_rank_nodes.py --input docs/evidence/formal-cross-node
 ```
 
 詳見 [正式跨節點比較紀錄](evidence/formal-cross-node-energy-comparison.md)。這份輸入的 `candidates` schema 與 runner 的 `--node-results` schema 不同，不能混用。
+
+## 5. YOLO26 長跑驗證與 PDU
+
+`--mode validation` 使用已凍結的跨節點 dry-run 排名輸入，產生每節點完整訓練 Job 與明確 `kubectl apply` 指令，但不自動部署。`--mode validation-evaluate` 匯入完成的 Pod JSON 及可選的每節點五分鐘平均 PDU CSV，計算實測執行時間與整機 gross Wh。完整用途、指令、限制與例子見 [YOLO26 長跑跨節點驗證](yolo26-longrun-validation-zh.md)。
 
 ## 成果介面
 

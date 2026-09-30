@@ -1,0 +1,87 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pre6g-yolo26-validation-source
+  namespace: experiments
+  annotations:
+    pre6g.io/application-container: trainer
+    pre6g.io/workload-family: vision-training
+    pre6g.io/workload-adapter: yolo
+    pre6g.io/dataset-train-samples: "512"
+    pre6g.io/work-estimate-assumptions: single-gpu,no-gradient-accumulation,no-drop-last
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 10800
+  template:
+    spec:
+      runtimeClassName: nvidia
+      restartPolicy: Never
+      initContainers:
+        - name: create-deterministic-dataset
+          image: ultralytics/ultralytics:8.4.104
+          imagePullPolicy: IfNotPresent
+          command: [python3, -c]
+          args:
+            - |
+              from pathlib import Path
+              from PIL import Image, ImageDraw
+
+              root = Path('/work/dataset')
+              for split, count in [('train', 512), ('val', 64)]:
+                  image_dir = root / 'images' / split
+                  label_dir = root / 'labels' / split
+                  image_dir.mkdir(parents=True, exist_ok=True)
+                  label_dir.mkdir(parents=True, exist_ok=True)
+                  for i in range(count):
+                      color = ((i * 17) % 180 + 30, (i * 31) % 180 + 30, (i * 47) % 180 + 30)
+                      image = Image.new('RGB', (320, 320), color=color)
+                      draw = ImageDraw.Draw(image)
+                      x0, y0 = 100 + (i % 20), 100 + ((i * 3) % 20)
+                      x1, y1 = x0 + 80, y0 + 80
+                      draw.rectangle([x0, y0, x1, y1], outline=(255, 255, 255), width=3)
+                      image.save(image_dir / f'{i:05d}.jpg', quality=80)
+                      xc, yc = ((x0 + x1) / 2) / 320, ((y0 + y1) / 2) / 320
+                      w, h = (x1 - x0) / 320, (y1 - y0) / 320
+                      (label_dir / f'{i:05d}.txt').write_text(f'0 {xc} {yc} {w} {h}\n')
+              (root / 'data.yaml').write_text(
+                  'path: /work/dataset\ntrain: images/train\nval: images/val\nnames:\n  0: object\n'
+              )
+          volumeMounts:
+            - name: work
+              mountPath: /work
+      containers:
+        - name: trainer
+          image: ultralytics/ultralytics:8.4.104
+          imagePullPolicy: IfNotPresent
+          command: [yolo, detect, train]
+          args:
+            - model=yolo26n.yaml
+            - data=/work/dataset/data.yaml
+            - epochs=30
+            - imgsz=320
+            - batch=16
+            - workers=0
+            - device=0
+            - pretrained=False
+            - amp=False
+            - patience=0
+            - plots=False
+            - save=False
+            - project=/work/output
+            - name=train
+            - exist_ok=True
+          resources:
+            requests:
+              cpu: "4"
+              memory: 8Gi
+              nvidia.com/gpu.shared: "1"
+            limits:
+              cpu: "8"
+              memory: 16Gi
+              nvidia.com/gpu.shared: "1"
+          volumeMounts:
+            - name: work
+              mountPath: /work
+      volumes:
+        - name: work
+          emptyDir: {}
