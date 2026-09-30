@@ -1321,3 +1321,22 @@ validation_status                       diagnostic_extrapolation
 
 Therefore this milestone validates the runtime/power energy-composition path,
 not the final automatic ranking claim.
+
+
+## Power range terminology correction
+
+The earlier power smoke emitted `ood=true` when `GPU Power(W)` exceeded
+the scaler reference maximum in part of the formal window. This was an
+integration-side scaler-range check, not model-native OOD detection.
+
+Current interpretation:
+
+~~~text
+old label       ood=true
+current label   range_exceeded=true
+detail          GPU Power(W) outside scaler reference range for part of window
+effect          diagnostic only; ONNX prediction remains usable
+~~~
+
+The previously reported representative power prediction
+`462.28196331549725 W` is unchanged.
