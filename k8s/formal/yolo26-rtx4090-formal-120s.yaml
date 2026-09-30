@@ -4,6 +4,11 @@ kind: Job
 metadata:
   name: pre6g-formal-yolo26-4090-120s-v1
   namespace: experiments
+  # 120-second functional/integration fixture only; not a formal long-run result.
+  annotations:
+    pre6g.io/experiment-stage: functional-validation
+    pre6g.io/test-purpose: cross-node-pipeline-integration
+    pre6g.io/production-result: "false"
 
 spec:
   backoffLimit: 0
