@@ -43,3 +43,22 @@ Existing failed run IDs are still not a resume mechanism: preserve `/srv/pre6g-a
 
 The evidence therefore supports worker-side profiling and shared-NFS artifact production, plus the earlier smoke checks; it does not yet establish successful end-to-end collection/prediction/ranking, model prediction quality, or full training results.
 
+
+## Functional/integration run `yolo26-dryrun-002`
+
+The next functional run used the master-pinned collector configuration. Integrated preflight passed without creating Kubernetes resources. Both RTX4090 and RTX5090 profiling Jobs completed, and the collector successfully returned all six required artifacts per node to the master-side output directory: `profile-result.json`, `runtime-features.json`, `marker-free-discovery.json`, `telemetry/aligned-telemetry.csv`, `telemetry/alignment-quality.json`, and `telemetry/application-window.json`.
+
+The first prediction attempt then exposed a separate control-side packaging gap: ONNX Runtime was not installed in the master virtual environment. After installing `requirements-power-model.txt`, ONNX Runtime 1.23.2 reported `CPUExecutionProvider`, and prediction/ranking resumed from the already collected artifacts without re-running GPU profiling.
+
+| Node | Device | Predicted runtime / training iteration | Predicted node steady power | Predicted steady gross energy |
+| --- | --- | ---: | ---: | ---: |
+| `iccl-s3-251230` | RTX4090 | 46.1338 ms | 207.993 W | 9.212 kJ |
+| `mirc516-20250605` | RTX5090 | 47.2247 ms | 281.839 W | 12.777 kJ |
+
+The ranking selected RTX4090 under the current research-provisional steady-energy objective. Both power outputs remain `validation_required`; this is not a production or formal model-accuracy result.
+
+This run establishes that the individual functional capabilities work through profiling → shared NFS → master collector → runtime inference → power inference → ranking. It does **not** yet satisfy the clean unattended end-to-end merge gate because the initial `--execute` invocation stopped for the missing ONNX Runtime dependency and prediction was resumed manually.
+
+The fixture is explicitly classified as `functional-validation`: 512 training samples, batch 16, 30 epochs, 960 training iterations. At the current per-iteration predictions this represents only about 44–45 seconds of predicted steady training compute, not the intended future 30–50 minute formal workload.
+
+A clean new-run `--execute` after the dependency-preflight fix is the remaining live merge gate before this branch should be merged into `main`.
