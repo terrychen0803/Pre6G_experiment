@@ -1,5 +1,7 @@
 # 多節點同時 dry-run → master 預測 → 排名
 
+目前 4090／5090 的 preflight 與 smoke 驗證紀錄見 [cross-node preflight/smoke evidence](evidence/cross-node-preflight-smoke-20261001.md)。這些檢查尚未包含 120 秒 profiling、預測排名或長時間訓練。
+
 `scripts/run_experiment_pipeline.py --mode cross-node` 將原本人工銜接的階段串起來。它適用於目前已驗證的 YOLO26 120 秒 profile fixture；尚不是通用 Kubernetes controller。示範設定在 `examples/yolo26/cross-node-dryrun.yaml`，分別綁定 RTX4090、RTX5090 的 Profile Job 模板、runtime model 和 node-bound power bundle。
 
 流程：
@@ -117,3 +119,4 @@ python scripts/run_experiment_pipeline.py \
 ```
 
 後續 Job 部署及每五分鐘平均 PDU 的比較步驟見 [YOLO26 長跑驗證](yolo26-longrun-validation-zh.md)。本功能不會讀取或修改外部 PDU 網站；PDU CSV 仍需在完整訓練後匯出。
+
