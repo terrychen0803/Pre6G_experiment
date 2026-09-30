@@ -9,7 +9,10 @@ on:
       - 'scripts/run_experiment_pipeline.py'
       - 'tests/test_cross_node_dryrun.py'
       - 'tests/test_experiment_pipeline.py'
+      - 'tests/test_validation_runs.py'
+      - 'scripts/plan_validation_runs.py'
       - 'examples/yolo26/**'
+      - 'k8s/formal/**'
       - 'models/**'
       - 'src/**'
       - 'pyproject.toml'
@@ -31,3 +34,4 @@ jobs:
       - run: python -m pip install -e .
       - run: python -m unittest discover -s tests -p 'test_cross_node_dryrun.py' -v
       - run: python -m unittest discover -s tests -p 'test_experiment_pipeline.py' -v
+      - run: python -m unittest discover -s tests -p 'test_validation_runs.py' -v
