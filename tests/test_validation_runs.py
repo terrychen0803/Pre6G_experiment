@@ -46,6 +46,22 @@ class ValidationRunTests(unittest.TestCase):
             self.assertEqual(job["spec"]["template"]["spec"]["containers"][0]["image"], "ultralytics/ultralytics:8.4.104")
         self.assertNotIn("nodeSelector", self.job["spec"]["template"]["spec"])
 
+    def test_fixed_formal_workload_is_not_rescaled_after_prediction(self):
+        job = yaml.safe_load((ROOT / "examples/yolo26/formal-40min-source-job.yaml").read_text(encoding="utf-8"))
+        ranking = json.loads(json.dumps(self.ranking))
+        ranking["total_work_units"] = 52448
+        discovery = {
+            "adapter": "yolo",
+            "work": {"unit": "training_iteration", "steps_per_epoch": 32, "total_units": 52448},
+        }
+        result, jobs = PLANNER.plan(job, ranking, discovery, validation_id="formal-test-001", target_minutes=40)
+        self.assertEqual(result["planning_mode"], "fixed-source-workload")
+        self.assertTrue(result["source_workload_fixed"])
+        self.assertEqual(result["planned_epochs"], 1639)
+        self.assertEqual(result["planned_total_work_units"], 52448)
+        for rendered in jobs:
+            self.assertIn("epochs=1639", rendered["spec"]["template"]["spec"]["containers"][0]["args"])
+
     def test_discovery_mismatch_fails(self):
         self.discovery["work"]["total_units"] = 100
         with self.assertRaisesRegex(ValueError, "must match"):
