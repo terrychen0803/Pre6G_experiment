@@ -10,6 +10,7 @@ metadata:
     pre6g.io/test-purpose: dryrun-full-workload-prediction
     pre6g.io/production-result: "false"
     pre6g.io/full-workload-fixed: "true"
+    pre6g.io/formal-workload-revision: "v2-training-only"
     pre6g.io/dryrun-capture-seconds: "120"
 
 spec:
@@ -239,6 +240,8 @@ spec:
                     device=0 \
                     pretrained=False \
                     amp=False \
+                    val=False \
+                    patience=0 \
                     plots=False \
                     save=False \
                     project="$LOCAL/yolo" \

@@ -17,6 +17,7 @@ metadata:
     pre6g.io/sizing-source-run: yolo26-functional-003
     pre6g.io/work-unit: training_iteration
     pre6g.io/total-work-units: "52448"
+    pre6g.io/formal-workload-revision: "v2-training-only"
     pre6g.io/application-container: trainer
     pre6g.io/workload-family: vision-training
     pre6g.io/workload-adapter: yolo
@@ -77,6 +78,7 @@ spec:
             - device=0
             - pretrained=False
             - amp=False
+            - val=False
             - patience=0
             - plots=False
             - save=False

@@ -82,6 +82,21 @@ def plan(job: dict[str, Any], ranking: dict[str, Any], discovery: dict[str, Any]
     annotations = job.get("metadata", {}).get("annotations", {})
     fixed_full_workload = annotations.get("pre6g.io/full-workload-fixed") == "true"
     if fixed_full_workload:
+        if annotations.get("pre6g.io/formal-workload-revision") != "v2-training-only":
+            raise ValueError(
+                "fixed formal workload must declare "
+                "pre6g.io/formal-workload-revision=v2-training-only"
+            )
+        source_args = {
+            str(item)
+            for item in containers[0].get("args") or []
+        }
+        for option in ("val=False", "save=False", "patience=0"):
+            if option not in source_args:
+                raise ValueError(
+                    f"fixed formal workload must include {option} "
+                    "for the training-only benchmark"
+                )
         if source_units % steps != 0:
             raise ValueError("fixed full workload total units must be divisible by steps_per_epoch")
         epochs = source_units // steps

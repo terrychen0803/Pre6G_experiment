@@ -23,6 +23,18 @@ Sizing reference 使用已完成的 functional run `yolo26-functional-003`：
 
 `examples/yolo26/formal-40min-source-job.yaml`
 
+### Formal workload revision v2：training-only
+
+第一次 formal 120 秒實測 `yolo26-formal-dryrun-001` 在 RTX5090 約第 6 epoch 被 Ultralytics 的 fitness-collapse recovery 中止。該 run 的 profiler 實際使用預設 `val=True`／`patience=100`，同時 `save=False`，因此 fitness collapse 發生時沒有 `last.pt` 可供 recovery，container 以 exit code 1 結束。這不是 Kubernetes deadline、Nsight、DCGM 或 telemetry alignment 失敗。
+
+本研究的 formal benchmark 目標是固定 training iterations 的 runtime / energy，而不是 synthetic dataset 的 detection accuracy。因此 workload revision v2 明確固定：
+
+- `val=False`
+- `save=False`
+- `patience=0`
+
+這三個參數必須同時出現在 source Job、RTX4090 profile template、RTX5090 profile template；cross-node prepare/preflight 會 fail closed。這避免 validation fitness/recovery 與 checkpoint I/O 改變 benchmark workload。
+
 它明確標記：
 
 - `pre6g.io/experiment-stage: formal-experiment`
@@ -30,6 +42,7 @@ Sizing reference 使用已完成的 functional run `yolo26-functional-003`：
 - `pre6g.io/full-workload-fixed: "true"`
 - `pre6g.io/work-unit: training_iteration`
 - `pre6g.io/total-work-units: "52448"`
+- `pre6g.io/formal-workload-revision: "v2-training-only"`
 
 ## Dry-run 與 full workload 的分離
 
@@ -78,6 +91,7 @@ Profile templates：
 - 必須記錄 sizing reference node
 - source 的 epochs / dataset / batch 算出的 work units 必須與宣告的 total work units 一致
 - profiling template 必須保持與 source 完全相同的 model / epochs / imgsz / batch / AMP / dataset count
+- formal training-only policy 必須保持 `val=False / save=False / patience=0`
 - profiling wall-clock 仍固定 `--duration=120`
 
 Ground-truth planner 遇到 `full-workload-fixed=true` 時，不再根據新的 prediction 重新調整 epochs；它會保持原始 1639 epochs / 52448 iterations，避免 prediction 反過來改變被驗證的 workload。
@@ -93,9 +107,9 @@ CTX=$(kubectl config current-context)
 python scripts/run_experiment_pipeline.py \
   --mode cross-node \
   --cross-node-config examples/yolo26/formal-cross-node-dryrun.yaml \
-  --run-id yolo26-formal-dryrun-001 \
+  --run-id yolo26-formal-dryrun-002 \
   --worker-commit "$COMMIT" \
-  --output-dir generated/yolo26-formal-dryrun-001 \
+  --output-dir generated/yolo26-formal-dryrun-002 \
   --preflight-only \
   --kube-context "$CTX"
 ```
