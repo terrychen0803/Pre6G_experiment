@@ -10,7 +10,7 @@ YOLO26 只是目前第一個 integration fixture；平台核心不假設使用�
 
 目前 repository 區分：
 
-- model-ready：runtime model 與該 node 對應的 power model 都通過 semantic binding、版本、binding、schema、OOD、confidence 與 telemetry-quality gate，允許自動選點。
+- model-ready：runtime model 與該 node 對應的 power model 都通過 semantic binding、版本、binding、schema、runtime OOD/confidence 與 telemetry-quality gate，允許自動選點。Power scaler min/max 超界只記錄為 range warning，不作 rejection gate。
 - profile-only：可完成 workload intake、marker-free per-node dry-run、Nsight、Netdata/DCGM telemetry 與 artifact 保存，但不自動宣稱最佳節點。
 - demo：只用 synthetic prediction 驗證控制流程，不可當成實驗結論。
 
@@ -627,8 +627,7 @@ Run a smoke prediction with:
 python -m pip install -r requirements-power-model.txt
 python scripts/predict_power_eq.py \
   examples/power/pdu1-outlet1-sample.json \
-  --output generated/pdu1-outlet1-predictions.json \
-  --reject-ood
+  --output generated/pdu1-outlet1-predictions.json
 ```
 
 The adapter accepts JSON or CSV telemetry and adds `PREDICTED_POWER_W` to each
@@ -643,3 +642,20 @@ to the RTX 5090 node (`mirc516-20250605`). Both remain intentionally marked
 `validation_required`: outlet-power semantics, idle power, and held-out model
 quality have not yet been confirmed for the project's automatic
 `node-total-power` ranking contract.
+
+
+### Power scaler range diagnostics
+
+The supplied power-model inference notebooks do not implement OOD detection.
+Pre6G previously labeled scaler min/max exceedance as `ood`; that integration
+terminology has been removed. Current power inference:
+
+~~~text
+raw telemetry
+  -> scaler
+  -> ONNX prediction
+  -> range_exceeded / range_warnings (diagnostic only)
+~~~
+
+Inputs are not clipped or rejected solely because their normalized scaler value
+falls outside `[0, 1]`. Runtime-model OOD handling remains separate.
