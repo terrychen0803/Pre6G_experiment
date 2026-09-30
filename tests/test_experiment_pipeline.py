@@ -56,6 +56,7 @@ class ExperimentPipelineTests(unittest.TestCase):
             run_id=None,
             worker_commit=None,
             preflight_only=False,
+            smoke_only=False,
             execute=False,
             kube_context=None,
             timeout_seconds=900,
@@ -135,6 +136,12 @@ class ExperimentPipelineTests(unittest.TestCase):
             preflight = PIPELINE.build_stages(args, Path(raw_tmp))[0]
             self.assertIn("--preflight-only", preflight.command)
             self.assertNotIn("--execute", preflight.command)
+            args.preflight_only = False
+            args.smoke_only = True
+            PIPELINE.validate(args)
+            smoke = PIPELINE.build_stages(args, Path(raw_tmp))[0]
+            self.assertIn("--smoke-only", smoke.command)
+            self.assertIn(Path(raw_tmp) / "smoke-result.json", smoke.outputs)
             args.execute = True
             with self.assertRaisesRegex(ValueError, "mutually exclusive"):
                 PIPELINE.validate(args)

@@ -38,6 +38,77 @@ ARTIFACTS = (
     "telemetry/alignment-quality.json",
     "telemetry/application-window.json",
 )
+SMOKE_PROGRAM = r'''
+import json
+import os
+import subprocess
+import time
+import urllib.request
+from pathlib import Path
+
+run_id = os.environ["RUN_ID"]
+node = os.environ["NODE_NAME"]
+peer = os.environ["PEER_NODE"]
+gpu_uuid = os.environ["GPU_UUID"]
+
+def command(*args):
+    result = subprocess.run(args, check=True, capture_output=True, text=True, timeout=45)
+    return (result.stdout + result.stderr).strip()
+
+visible = command("nvidia-smi", "--query-gpu=uuid", "--format=csv,noheader").splitlines()
+if gpu_uuid not in [value.strip() for value in visible]:
+    raise RuntimeError("expected GPU UUID is not visible inside this Pod")
+nsight_version = command("/opt/pre6g/nsight/bin/nsys", "--version")
+command("git", "ls-remote", "https://github.com/terrychen0803/Pre6G_experiment.git", "HEAD")
+
+with urllib.request.urlopen(os.environ["DCGM_URL"].rstrip("/") + "/metrics", timeout=15) as response:
+    dcgm = response.read().decode("utf-8")
+required = (
+    "DCGM_FI_DEV_GPU_UTIL", "DCGM_FI_DEV_FB_USED",
+    "DCGM_FI_DEV_GPU_TEMP", "DCGM_FI_DEV_POWER_USAGE",
+)
+missing = [metric for metric in required if not any(
+    line.startswith(metric + "{") and ('UUID="' + gpu_uuid + '"') in line
+    for line in dcgm.splitlines()
+)]
+if missing:
+    raise RuntimeError("DCGM endpoint lacks metrics for expected GPU UUID: " + ", ".join(missing))
+
+with urllib.request.urlopen(os.environ["NETDATA_URL"].rstrip("/") + "/api/v1/allmetrics?format=json", timeout=15) as response:
+    netdata = json.load(response)
+if not isinstance(netdata, dict) or not netdata:
+    raise RuntimeError("Netdata did not return nonempty host metrics")
+
+root = Path("/shared/smoke") / run_id
+os.umask(0o022)
+own = root / node
+own.mkdir(parents=True, exist_ok=True)
+marker = own / "marker.json"
+marker.write_text(json.dumps({"run_id": run_id, "node": node, "gpu_uuid": gpu_uuid}) + "\n", encoding="utf-8")
+deadline = time.monotonic() + 90
+peer_marker = root / peer / "marker.json"
+while not peer_marker.is_file() and time.monotonic() < deadline:
+    time.sleep(1)
+if not peer_marker.is_file():
+    raise RuntimeError("peer marker was not visible across the NFS PVC")
+other = json.loads(peer_marker.read_text(encoding="utf-8"))
+if other.get("run_id") != run_id or other.get("node") != peer:
+    raise RuntimeError("peer NFS marker identity mismatch")
+
+print("PRE6G_SMOKE_RESULT=" + json.dumps({
+    "schema_version": "pre6g.cross-node-smoke-result/v1",
+    "passed": True,
+    "run_id": run_id,
+    "node": node,
+    "gpu_uuid": gpu_uuid,
+    "peer_node": peer,
+    "nfs_peer_read": True,
+    "nsight_version": nsight_version,
+    "dcgm_metrics": list(required),
+    "netdata_chart_count": len(netdata),
+    "github_access": True,
+}), flush=True)
+'''
 
 
 def _name(value: str, label: str) -> str:
@@ -347,6 +418,130 @@ def _preflight(plan: dict[str, Any], jobs: list[dict[str, Any]], context: str, o
     return resolved
 
 
+def _smoke_pods(plan: dict[str, Any], jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    nodes = [item["node"] for item in plan["candidates"]]
+    pods: list[dict[str, Any]] = []
+    for index, job in enumerate(jobs):
+        source_spec = job["spec"]["template"]["spec"]
+        node = source_spec["nodeSelector"]["kubernetes.io/hostname"]
+        source_container = source_spec["containers"][0]
+        values = _env(source_container)
+        if values["DCGM_URL"].get("value") == "DCGM_ENDPOINT_UNRESOLVED":
+            raise ValueError(f"{node}: DCGM endpoint must be resolved before smoke testing")
+        volumes = {volume["name"]: volume for volume in source_spec.get("volumes", [])}
+        if volumes.get("artifacts", {}).get("persistentVolumeClaim", {}).get("claimName") != plan["artifact_pvc"]:
+            raise ValueError(f"{node}: artifact PVC mount is missing")
+        if volumes.get("nsys", {}).get("hostPath", {}).get("path") != "/opt/nvidia/nsight-systems-cli/2026.4.1":
+            raise ValueError(f"{node}: Nsight hostPath differs from validated path")
+        peer = nodes[(index + 1) % len(nodes)]
+        pod = {
+            "apiVersion": "v1", "kind": "Pod",
+            "metadata": {
+                "name": _name(f"pre6g-smoke-{plan['run_id']}-{node}", "smoke Pod name"),
+                "namespace": plan["namespace"],
+                "labels": {"pre6g.io/smoke-id": plan["run_id"], "pre6g.io/candidate-node": node},
+            },
+            "spec": {
+                "restartPolicy": "Never", "activeDeadlineSeconds": 300,
+                "runtimeClassName": source_spec["runtimeClassName"],
+                "nodeSelector": {"kubernetes.io/hostname": node},
+                "containers": [{
+                    "name": "smoke", "image": source_container["image"],
+                    "imagePullPolicy": source_container.get("imagePullPolicy", "IfNotPresent"),
+                    "securityContext": source_container.get("securityContext", {}),
+                    "command": ["python3", "-c", SMOKE_PROGRAM],
+                    "env": [
+                        {"name": "RUN_ID", "value": plan["run_id"]},
+                        {"name": "NODE_NAME", "value": node},
+                        {"name": "PEER_NODE", "value": peer},
+                        *[{"name": name, "value": values[name]["value"]} for name in ("GPU_UUID", "NETDATA_URL", "DCGM_URL")],
+                    ],
+                    "resources": {
+                        "requests": {"cpu": "250m", "memory": "512Mi", "nvidia.com/gpu.shared": "1"},
+                        "limits": {"cpu": "1", "memory": "1Gi", "nvidia.com/gpu.shared": "1"},
+                    },
+                    "volumeMounts": [
+                        {"name": "artifacts", "mountPath": "/shared"},
+                        {"name": "nsys", "mountPath": "/opt/pre6g/nsight", "readOnly": True},
+                    ],
+                }],
+                "volumes": [volumes["artifacts"], volumes["nsys"]],
+            },
+        }
+        pods.append(pod)
+    return pods
+
+
+def _parse_smoke_log(log: str, *, run_id: str, node: str, gpu_uuid: str) -> dict[str, Any]:
+    markers = [line.removeprefix("PRE6G_SMOKE_RESULT=") for line in log.splitlines() if line.startswith("PRE6G_SMOKE_RESULT=")]
+    if len(markers) != 1:
+        raise ValueError(f"{node}: expected exactly one smoke result in Pod logs")
+    result = json.loads(markers[0])
+    if (result.get("schema_version") != "pre6g.cross-node-smoke-result/v1" or result.get("passed") is not True
+            or result.get("run_id") != run_id or result.get("node") != node or result.get("gpu_uuid") != gpu_uuid
+            or result.get("nfs_peer_read") is not True or result.get("github_access") is not True):
+        raise ValueError(f"{node}: smoke result identity or checks failed")
+    return result
+
+
+def _run_smoke(plan: dict[str, Any], jobs: list[dict[str, Any]], context: str, output: Path) -> None:
+    namespace = plan["namespace"]
+    log = output / "logs" / "kubectl.log"
+    pods = _smoke_pods(plan, jobs)
+    existing = json.loads(_invoke(_kubectl(context, "-n", namespace, "get", "pods", "-l", f"pre6g.io/smoke-id={plan['run_id']}", "-o", "json"), cwd=output, log=log))
+    if existing.get("items"):
+        raise RuntimeError("smoke Pods already exist for this run ID; use a new run ID")
+    manifest = output / "smoke-pods.yaml"
+    manifest.write_text(yaml.safe_dump_all(pods, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    _invoke(_kubectl(context, "-n", namespace, "apply", "--dry-run=server", "-f", str(manifest)), cwd=output, log=log)
+    created: list[dict[str, Any]] = []
+    cleanup_errors: list[str] = []
+    try:
+        for pod in pods:
+            name = pod["metadata"]["name"]
+            single = output / f"{name}.yaml"
+            single.write_text(yaml.safe_dump(pod, sort_keys=False, allow_unicode=True), encoding="utf-8")
+            _invoke(_kubectl(context, "-n", namespace, "create", "-f", str(single)), cwd=output, log=log)
+            created.append(pod)
+        expected = {pod["metadata"]["name"] for pod in pods}
+        deadline = time.monotonic() + 360
+        while time.monotonic() < deadline:
+            raw = _invoke(_kubectl(context, "-n", namespace, "get", "pods", "-l", f"pre6g.io/smoke-id={plan['run_id']}", "-o", "json"), cwd=output, log=log)
+            statuses = {row["metadata"]["name"]: row.get("status", {}) for row in json.loads(raw).get("items", [])}
+            if any(statuses.get(name, {}).get("phase") == "Failed" for name in expected):
+                raise RuntimeError("a smoke Pod failed; inspect the saved Pod logs")
+            if all(statuses.get(name, {}).get("phase") == "Succeeded" for name in expected):
+                break
+            time.sleep(5)
+        else:
+            raise RuntimeError("smoke Pods did not all succeed within six minutes")
+    finally:
+        for pod in created:
+            name = pod["metadata"]["name"]
+            result = subprocess.run(_kubectl(context, "-n", namespace, "logs", name, "-c", "smoke"), capture_output=True, text=True, encoding="utf-8", errors="replace", check=False)
+            path = output / "logs" / f"{name}.log"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(result.stdout + result.stderr, encoding="utf-8")
+        for pod in created:
+            name = pod["metadata"]["name"]
+            try:
+                _invoke(_kubectl(context, "-n", namespace, "delete", "pod", name, "--wait=true", "--timeout=60s"), cwd=output, log=log)
+            except RuntimeError as exc:
+                cleanup_errors.append(f"{name}: {exc}")
+        if cleanup_errors:
+            raise RuntimeError("smoke Pod cleanup failed: " + "; ".join(cleanup_errors))
+    results = []
+    for item in plan["candidates"]:
+        name = _name(f"pre6g-smoke-{plan['run_id']}-{item['node']}", "smoke Pod name")
+        saved = (output / "logs" / f"{name}.log").read_text(encoding="utf-8")
+        results.append(_parse_smoke_log(saved, run_id=plan["run_id"], node=item["node"], gpu_uuid=item["gpu_uuid"]))
+    _write_json(output / "smoke-result.json", {
+        "schema_version": "pre6g.cross-node-smoke-summary/v1", "run_id": plan["run_id"],
+        "passed": True, "results": results, "pvc_relative_marker_path": f"smoke/{plan['run_id']}",
+        "pods_deleted": True,
+    })
+
+
 def _wait_jobs(plan: dict[str, Any], context: str, output: Path, timeout_s: int) -> None:
     expected = {item["job_name"] for item in plan["candidates"]}
     deadline = time.monotonic() + timeout_s
@@ -503,20 +698,21 @@ def _predict(plan: dict[str, Any], output: Path) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Plan or execute parallel YOLO26 dry-run Jobs, collect ProfileResults through the shared PVC, and rank nodes on the master.")
+    parser = argparse.ArgumentParser(description="Plan, smoke-test, or execute parallel YOLO26 dry-run Jobs, then rank nodes on the master.")
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--worker-commit", required=True, help="Full pushed Git SHA checked out inside each worker Job")
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--preflight-only", action="store_true", help="Check live cluster prerequisites and render resolved Jobs without creating resources")
+    parser.add_argument("--smoke-only", action="store_true", help="Run short non-training Pods on candidate nodes, then delete them")
     parser.add_argument("--execute", action="store_true", help="Actually create all dry-run Jobs in Kubernetes")
-    parser.add_argument("--kube-context", help="Required with --preflight-only or --execute; must equal current kube context")
+    parser.add_argument("--kube-context", help="Required with --preflight-only, --smoke-only, or --execute; must equal current kube context")
     parser.add_argument("--timeout-seconds", type=int, default=900)
     args = parser.parse_args()
-    if args.execute and args.preflight_only:
-        parser.error("--preflight-only and --execute are mutually exclusive")
-    if (args.execute or args.preflight_only) and not args.kube_context:
-        parser.error("--preflight-only and --execute require --kube-context")
+    if sum((args.preflight_only, args.smoke_only, args.execute)) > 1:
+        parser.error("--preflight-only, --smoke-only, and --execute are mutually exclusive")
+    if (args.execute or args.preflight_only or args.smoke_only) and not args.kube_context:
+        parser.error("--preflight-only, --smoke-only, and --execute require --kube-context")
     if args.timeout_seconds <= 0:
         parser.error("--timeout-seconds must be positive")
     output = args.output_dir.resolve()
@@ -540,7 +736,7 @@ def main() -> int:
             _write_json(plan_path, plan)
             jobs_path.write_text(yaml.safe_dump_all(jobs, sort_keys=False, allow_unicode=True), encoding="utf-8")
             collector_path.write_text(yaml.safe_dump(collector, sort_keys=False, allow_unicode=True), encoding="utf-8")
-        if not args.execute and not args.preflight_only:
+        if not args.execute and not args.preflight_only and not args.smoke_only:
             _write_json(summary, {"schema_version": "pre6g.cross-node-run-summary/v1", "status": "planned", "started_at": started_at, "run_id": args.run_id, "plan": str(plan_path)})
             print(f"[planned] {plan_path}; no Kubernetes Job was created")
             return 0
@@ -549,6 +745,12 @@ def main() -> int:
         if args.preflight_only:
             _write_json(summary, {"schema_version": "pre6g.cross-node-run-summary/v1", "status": "preflight_passed", "started_at": started_at, "finished_at": datetime.now(timezone.utc).isoformat(), "run_id": args.run_id, "resolved_jobs": str(resolved_jobs_path)})
             print(f"[preflight passed] {resolved_jobs_path}; no Kubernetes resource was created")
+            return 0
+        if args.smoke_only:
+            phase = "smoke"
+            _run_smoke(plan, jobs, args.kube_context, output)
+            _write_json(summary, {"schema_version": "pre6g.cross-node-run-summary/v1", "status": "smoke_passed", "started_at": started_at, "finished_at": datetime.now(timezone.utc).isoformat(), "run_id": args.run_id, "smoke_result": str(output / "smoke-result.json")})
+            print(f"[smoke passed] {output / 'smoke-result.json'}; no YOLO training Job was created")
             return 0
         phase = "submit"
         _invoke(_kubectl(args.kube_context, "-n", plan["namespace"], "create", "-f", str(resolved_jobs_path)), cwd=output, log=output / "logs" / "kubectl.log")

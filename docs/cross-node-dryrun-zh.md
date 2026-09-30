@@ -46,7 +46,22 @@ python scripts/run_experiment_pipeline.py \
   --kube-context YOUR_K3S_CONTEXT
 ```
 
-等實機 smoke test 也通過後，才在同一輸出目錄以 `--execute` 提交兩個 dry-run Jobs；程式會**重新**解析 DCGM Pod IP 與重做 preflight，避免使用先前快照：
+取得許可後，可用獨立 run ID 執行短暫的實機 smoke test。這會先重新執行 preflight，接著同時建立 4090／5090 各一個檢查 Pod（每個 Pod 請求 `nvidia.com/gpu.shared: 1`，最長 300 秒），驗證 Pod 內 GPU UUID、Nsight CLI、GitHub、指定 GPU 的 DCGM 指標、Netdata API，以及雙向 NFS/PVC 標記讀取；**不會執行 YOLO 訓練**：
+
+```bash
+python scripts/run_experiment_pipeline.py \
+  --mode cross-node \
+  --cross-node-config examples/yolo26/cross-node-dryrun.yaml \
+  --run-id yolo26-smoke-001 \
+  --worker-commit YOUR_PUSHED_40_CHARACTER_COMMIT_SHA \
+  --output-dir generated/yolo26-smoke-001 \
+  --smoke-only \
+  --kube-context YOUR_K3S_CONTEXT
+```
+
+程式會保存 `smoke-pods.yaml`、各 Pod 的 log，成功時另存 `smoke-result.json`，並在成功或失敗時嘗試刪除**僅本次建立**的檢查 Pod；若刪除失敗，整體 smoke test 會報錯。成功後 NFS 上會保留兩個小型 `smoke/<run-id>/<node>/marker.json` 供稽核，請再從 master 的 `/srv/pre6g-artifacts/smoke/<run-id>/` 做唯讀回查。這個測試只證明連線、掛載與基本工具可用，**不等於**完整 Nsight trace、長時間訓練或模型品質驗證。
+
+等 smoke test 與 master 回查通過後，才在**新 run ID／輸出目錄**以 `--execute` 提交兩個 dry-run Jobs；程式會**重新**解析 DCGM Pod IP 與重做 preflight，避免使用先前快照：
 
 ```bash
 python scripts/run_experiment_pipeline.py \
