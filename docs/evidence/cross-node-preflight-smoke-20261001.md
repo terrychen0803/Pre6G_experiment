@@ -61,4 +61,29 @@ This run establishes that the individual functional capabilities work through pr
 
 The fixture is explicitly classified as `functional-validation`: 512 training samples, batch 16, 30 epochs, 960 training iterations. At the current per-iteration predictions this represents only about 44–45 seconds of predicted steady training compute, not the intended future 30–50 minute formal workload.
 
-A clean new-run `--execute` after the dependency-preflight fix is the remaining live merge gate before this branch should be merged into `main`.
+That remaining live merge gate was subsequently satisfied by `yolo26-functional-003`, described below.
+
+
+## Clean unattended functional run `yolo26-functional-003`
+
+A new run was started after the functional-validation annotations and control-side ONNX dependency preflight were added. The integrated workflow completed without manual package installation, private-function resume, or artifact copying.
+
+`cross-node-run-summary.json` reported:
+
+- `status: completed`
+- start: `2026-09-30T21:14:37.875332+00:00`
+- finish: `2026-09-30T21:19:21.164944+00:00`
+- selected node: `iccl-s3-251230` / RTX4090
+
+Both nodes produced all six required master-side artifacts: `profile-result.json`, `runtime-features.json`, `marker-free-discovery.json`, `telemetry/aligned-telemetry.csv`, `telemetry/alignment-quality.json`, and `telemetry/application-window.json`.
+
+The resulting research-provisional ranking was:
+
+| Node | Device | Runtime / training iteration | Predicted steady runtime for 960 units | Predicted node steady power | Predicted steady gross energy |
+| --- | --- | ---: | ---: | ---: | ---: |
+| `iccl-s3-251230` | RTX4090 | 45.7759 ms | 43.9448 s | 208.495 W | 9.162 kJ |
+| `mirc516-20250605` | RTX5090 | 47.0321 ms | 45.1508 s | 281.777 W | 12.722 kJ |
+
+The provisional steady-energy objective selected RTX4090, with 27.9835% lower predicted steady gross energy than the runner-up under the current model outputs. Both power outputs remain `validation_required`, `production_ready` remains false, and these 960-unit values are functional/integration evidence only—not formal 30–50 minute runtime or energy accuracy results.
+
+This run satisfies the functional merge gate: one clean `--execute` completed profiling → shared NFS → master collector → runtime inference → power inference → ranking with no manual recovery. The functional/integration phase can therefore be considered complete.
