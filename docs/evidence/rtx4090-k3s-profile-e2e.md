@@ -357,3 +357,22 @@ CPU Temp(°C)                 0.000      96.000      27.800      27.800      27.
 
 This audit applies only to the current 5-feature RTX4090 bundle and must not be
 interpreted as an audit of the historical 18-column monitoring schema.
+
+
+## Power range terminology correction
+
+The earlier power smoke emitted `ood=true` because all 109 samples had
+`GPU Mem Used(MB)` above the scaler reference maximum. This was an
+integration-side scaler-range check, not model-native OOD detection.
+
+Current interpretation:
+
+~~~text
+old label       ood=true
+current label   range_exceeded=true
+detail          GPU Mem Used(MB), 109/109 rows outside scaler reference range
+effect          diagnostic only; ONNX prediction remains usable
+~~~
+
+The previously reported representative power prediction
+`354.3231773345533 W` is unchanged.
