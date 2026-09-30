@@ -26,12 +26,19 @@ class CrossNodeDryrunTests(unittest.TestCase):
     def test_plan_creates_concurrent_node_jobs_without_deploying(self):
         plan, jobs, collector = DRYRUN.prepare(CONFIG, run_id="test-run-001", worker_commit=COMMIT)
         self.assertEqual(plan["source_total_work_units"], 960)
+        self.assertEqual(plan["experiment_stage"], "functional-validation")
+        self.assertEqual(plan["test_purpose"], "cross-node-pipeline-integration")
+        self.assertFalse(plan["production_result"])
         self.assertEqual(len(jobs), 2)
         self.assertEqual(collector["spec"]["volumes"][0]["persistentVolumeClaim"]["claimName"], "pre6g-artifacts")
         self.assertEqual(plan["collector_node"], "icclz2")
         self.assertEqual(collector["spec"]["nodeSelector"]["kubernetes.io/hostname"], "icclz2")
         self.assertEqual({job["spec"]["template"]["spec"]["nodeSelector"]["kubernetes.io/hostname"] for job in jobs}, {"iccl-s3-251230", "mirc516-20250605"})
         for job in jobs:
+            annotations = job["metadata"]["annotations"]
+            self.assertEqual(annotations["pre6g.io/experiment-stage"], "functional-validation")
+            self.assertEqual(annotations["pre6g.io/test-purpose"], "cross-node-pipeline-integration")
+            self.assertEqual(annotations["pre6g.io/production-result"], "false")
             container = job["spec"]["template"]["spec"]["containers"][0]
             self.assertIn(COMMIT, container["command"][2])
             self.assertIn("--duration=120", container["command"][2])
@@ -40,6 +47,10 @@ class CrossNodeDryrunTests(unittest.TestCase):
             self.assertEqual(env["TASK_ID"], "test-run-001")
             self.assertEqual(job["metadata"]["labels"]["pre6g.io/candidate-node"], env["NODE_NAME"])
             self.assertEqual(env["DCGM_URL"], "DCGM_ENDPOINT_UNRESOLVED")
+
+    def test_control_side_power_dependencies_load_before_cluster_execution(self):
+        plan, _, _ = DRYRUN.prepare(CONFIG, run_id="test-run-001", worker_commit=COMMIT)
+        DRYRUN._check_control_side_dependencies(plan)
 
     def test_wrong_bundle_binding_is_rejected(self):
         config = yaml.safe_load(CONFIG.read_text(encoding="utf-8"))
