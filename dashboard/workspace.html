@@ -59,7 +59,7 @@
           <section class="panel execution-panel" aria-labelledby="execution-heading">
             <div class="section-heading"><h2 id="execution-heading">接下來：啟動訓練</h2><span class="subtle-tag" id="progress-tag">等待執行</span></div>
             <p class="panel-description" id="execution-description">節點配置已完成，任務即將在 RTX4090 上啟動。</p>
-            <div class="progress-heading"><span id="progress-label">訓練進度</span><strong id="progress-value">0 / 960 次迭代</strong></div>
+            <div class="progress-heading"><span id="progress-label">訓練進度</span><strong id="progress-value">0%</strong></div>
             <div class="progress-track" id="task-progress" role="progressbar" aria-label="示意訓練進度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="progress-fill"></div></div>
             <div class="progress-footer"><span id="elapsed-label">尚未開始</span><span id="remaining-label">預測 steady training 60.8 秒</span></div>
             <div class="result-notice" id="result-notice" hidden><strong>訓練成果已就緒</strong><span>best.pt · 訓練摘要 · 執行紀錄</span><small>成果檔名為展示用，未生成可下載檔案。</small></div>
@@ -68,7 +68,7 @@
 
           <section class="panel" aria-labelledby="comparison-heading">
             <div class="section-heading"><div><h2 id="comparison-heading">為什麼選這個節點？</h2><p class="panel-description">相同任務與工作量，對照候選節點的預測結果。</p></div><span class="subtle-tag">2 個候選節點</span></div>
-            <div class="comparison-wrap"><table class="comparison-table"><caption class="sr-only">同一個 960 次迭代任務的節點比較，數值為預測，非執行實測</caption><thead><tr><th scope="col">節點</th><th scope="col">選點前 GPU 負載</th><th scope="col">預測訓練時間</th><th scope="col">預測能耗</th><th scope="col">配置結果</th></tr></thead><tbody>
+            <div class="comparison-wrap"><table class="comparison-table"><caption class="sr-only">同一訓練任務的節點比較，數值為預測，非執行實測</caption><thead><tr><th scope="col">節點</th><th scope="col">選點前 GPU 負載</th><th scope="col">預測訓練時間</th><th scope="col">預測能耗</th><th scope="col">配置結果</th></tr></thead><tbody>
               <tr id="candidate-4090"><th scope="row"><strong>RTX4090</strong><small>iccl-s3-251230</small></th><td><span>28%</span><span class="mini-meter"><i style="width:28%"></i></span></td><td data-prediction="60.8 s">60.8 s</td><td data-prediction="21.54 kJ">21.54 kJ</td><td><span class="choice-label" id="choice-4090">✓ 已選擇</span></td></tr>
               <tr><th scope="row"><strong>RTX5090</strong><small>mirc516-20250605</small></th><td><span>82%</span><span class="mini-meter warm"><i style="width:82%"></i></span></td><td data-prediction="123.6 s">123.6 s</td><td data-prediction="57.15 kJ">57.15 kJ</td><td><span id="choice-5090">未選擇</span></td></tr>
             </tbody></table></div>
@@ -83,7 +83,7 @@
             <p class="comparison-note">負載包含同節點上的其他任務。</p>
           </section>
           <section class="panel activity-panel" aria-labelledby="activity-heading"><div class="section-heading"><h2 id="activity-heading">任務動態</h2><span class="subtle-tag">示意紀錄</span></div><ol id="activity-list" class="activity-list"></ol></section>
-          <details class="task-details"><summary>檢視提交設定</summary><dl><div><dt>提交檔案</dt><dd>defect-training.yaml</dd></div><div><dt>工作類型</dt><dd>模型訓練</dd></div><div><dt>預估工作量</dt><dd>30 × ceil(512 / 16) = 960</dd></div><div><dt>執行環境</dt><dd>團隊 GPU 叢集</dd></div></dl></details>
+          <details class="task-details"><summary>檢視提交設定</summary><dl><div><dt>提交檔案</dt><dd>defect-training.yaml</dd></div><div><dt>工作類型</dt><dd>模型訓練</dd></div><div><dt>執行環境</dt><dd>團隊 GPU 叢集</dd></div></dl></details>
         </div>
       </div>
       <footer class="prototype-footer"><strong>設計示意</strong><p>此頁呈現未來產品體驗。時間與能耗數字參考既有研究比較，其餘任務、負載、進度與完成紀錄均為虛構。研究模型仍有 OOD／validation_required 限制；頁面中的選點與執行狀態不代表正式服務已上線。</p><a href="index.html">查看目前的實驗證據與驗證範圍 ↗</a></footer>
