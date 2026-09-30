@@ -4,6 +4,8 @@
 
 `scripts/run_experiment_pipeline.py --mode cross-node` 將原本人工銜接的階段串起來。它適用於目前已驗證的 YOLO26 120 秒 profile fixture；尚不是通用 Kubernetes controller。示範設定在 `examples/yolo26/cross-node-dryrun.yaml`，分別綁定 RTX4090、RTX5090 的 Profile Job 模板、runtime model 和 node-bound power bundle。
 
+Collector 已固定到 control-side master。示範設定使用 `collector_node: icclz2`，產生的 `collector-pod.yaml` 會帶入 `nodeSelector: {kubernetes.io/hostname: icclz2}`，因此 collector 不會再被 Kubernetes 任意排到 GX10、RTX3090 或其他非本流程節點。若 master 的 Kubernetes node name 不是 `icclz2`，必須先把 `collector_node` 改成 `kubectl get nodes` 顯示的實際 master hostname；不要為了 collector 額外把 GX10 納入候選節點。
+
 流程：
 
 ```text
@@ -33,7 +35,7 @@ python scripts/run_experiment_pipeline.py \
   --output-dir generated/yolo26-dryrun-001
 ```
 
-請先檢查 `cross-node-plan.json`、`dryrun-jobs.yaml`、`collector-pod.yaml`：特別是 kube context、namespace、PVC、節點 hostname、GPU UUID、Netdata URL、影像、Nsight mount、權限，以及目前節點是否可承擔同時 profiling。計畫檔中的 `DCGM_ENDPOINT_UNRESOLVED` 是刻意保留的安全標記，**不可直接提交 `dryrun-jobs.yaml`**；正式執行時才會依 `dcgm_exporter` 設定尋找每個節點上 Running/Ready 的 exporter Pod，將當時的 Pod IP 寫入 `dryrun-jobs-resolved.yaml`，並以此檔做 server-side dry-run 與提交。示範 Profile Job 會以 `privileged: true` 存取 Nsight；叢集政策不允許時，需先調整經驗證的模板。執行前也需確認本機 power ONNX dependencies 已安裝，並留意模型目前仍為 research provisional。
+請先檢查 `cross-node-plan.json`、`dryrun-jobs.yaml`、`collector-pod.yaml`：特別是 kube context、namespace、PVC、候選節點 hostname、`collector_node`、GPU UUID、Netdata URL、影像、Nsight mount、權限，以及目前節點是否可承擔同時 profiling。Master/collector node 必須 Ready、無 DiskPressure、能掛載 `pre6g-artifacts` 的 RWX NFS，且目前 collector manifest 沒有 tolerations，因此 master 若有 `NoSchedule`／`NoExecute` taint，preflight 會直接失敗並要求先明確處理叢集排程政策。計畫檔中的 `DCGM_ENDPOINT_UNRESOLVED` 是刻意保留的安全標記，**不可直接提交 `dryrun-jobs.yaml`**；正式執行時才會依 `dcgm_exporter` 設定尋找每個節點上 Running/Ready 的 exporter Pod，將當時的 Pod IP 寫入 `dryrun-jobs-resolved.yaml`，並以此檔做 server-side dry-run 與提交。示範 Profile Job 會以 `privileged: true` 存取 Nsight；叢集政策不允許時，需先調整經驗證的模板。執行前也需確認本機 power ONNX dependencies 已安裝，並留意模型目前仍為 research provisional。
 
 第二階段可先在**同一輸出目錄**執行唯讀叢集檢查；它會解析 DCGM Pod IP，產出 `dryrun-jobs-resolved.yaml` 與 `dcgm-endpoints.json`，並做 Kubernetes server-side dry-run，**不建立任何叢集資源**：
 
@@ -76,9 +78,9 @@ python scripts/run_experiment_pipeline.py \
   --kube-context YOUR_K3S_CONTEXT
 ```
 
-程式會核對目前 context 與指定值相同、namespace 與 `nvidia` RuntimeClass 存在、PVC 綁定的 PV 確實為 NFS/RWX、節點 Ready 且沒有 DiskPressure 並提供 `nvidia.com/gpu.shared`、每節點恰有一個 Ready 的 DCGM exporter Pod、Job 名稱沒有重複，並執行 server-side dry-run。然後建立兩個 Profile Jobs、等待完成，建立短暫的唯讀 PVC collector Pod，以 `kubectl cp` 將小型產物收回 master，最後刪除**這次建立的 collector Pod**。Profile Jobs 與 PVC 產物會保留供稽核；程式不會刪除它們，也不會自動啟動完整訓練。若 Job 失敗或超時，保留紀錄並用新的 run ID 重測，不會把部分結果拿去排名。
+程式會核對目前 context 與指定值相同、namespace 與 `nvidia` RuntimeClass 存在、PVC 綁定的 PV 確實為 NFS/RWX、候選節點 Ready 且沒有 DiskPressure 並提供 `nvidia.com/gpu.shared`、master/collector node Ready 且無 DiskPressure/阻擋排程的 taint、每節點恰有一個 Ready 的 DCGM exporter Pod、Job 名稱沒有重複，並執行 server-side dry-run。然後建立兩個 Profile Jobs、等待完成，在設定的 master node 建立短暫的唯讀 PVC collector Pod，以 `kubectl cp` 將小型產物收回 master 工作目錄，最後刪除**這次建立的 collector Pod**。Profile Jobs 與 PVC 產物會保留供稽核；程式不會刪除它們，也不會自動啟動完整訓練。若 Job 失敗或超時，保留紀錄並用新的 run ID 重測，不會把部分結果拿去排名。
 
-這些 API 檢查**不能代替實機 smoke test**：執行前仍須確認 NFS 跨節點寫入及 collector 讀取權限（含 root-squash）、Nsight host path 與 GPU UUID、Pod 到 DCGM/Netdata 的連線、worker GitHub 連線、映像可拉取與磁碟餘量。`dcgm_exporter` 的 namespace／label selector 如與現場不同，應先修改設定；不要改回固定 Pod IP。RTX3090 目前不在候選清單。
+這些 API 檢查**不能代替實機 smoke test**：執行前仍須確認 NFS 跨候選節點寫入，以及 **master 上 collector Pod 對同一 PVC 的讀取能力**（含 NFS client、網路路由、export 權限與 root-squash）、Nsight host path 與 GPU UUID、Pod 到 DCGM/Netdata 的連線、worker GitHub 連線、映像可拉取與磁碟餘量。`dcgm_exporter` 的 namespace／label selector 如與現場不同，應先修改設定；不要改回固定 Pod IP。RTX3090 目前不在候選清單。
 
 worker 執行原本的 YOLO 命令，外面只加一層記錄目標程序起訖時間的包裝；master 會用此時間窗裁切約 1 Hz 對齊 telemetry，避免把 Nsight 最後報告處理時間誤算為訓練功率。若缺時間窗、缺樣本、邊界相距超過 2 秒或內部有超過 2 秒空隙，排名會失敗而非補值。這是實驗用的 application-window proxy，尚非經完整驗證的 steady-state power-window 定義。
 

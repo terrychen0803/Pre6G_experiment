@@ -173,6 +173,7 @@ def prepare(config_path: Path, *, run_id: str, worker_commit: str) -> tuple[dict
         raise ValueError("unsupported cross-node dry-run config schema")
     namespace = _name(str(config["namespace"]), "namespace")
     pvc = _name(str(config["artifact_pvc"]), "artifact_pvc")
+    collector_node = _name(str(config["collector_node"]), "collector_node")
     exporter = config.get("dcgm_exporter") or {}
     exporter_namespace = _name(str(exporter.get("namespace", "gpu-monitoring")), "DCGM exporter namespace")
     exporter_selector = str(exporter.get("label_selector", "app.kubernetes.io/name=dcgm-exporter"))
@@ -295,6 +296,7 @@ def prepare(config_path: Path, *, run_id: str, worker_commit: str) -> tuple[dict
         "metadata": {"name": collector_name, "namespace": namespace, "labels": {"pre6g.io/dryrun-id": run_id}},
         "spec": {
             "restartPolicy": "Never", "activeDeadlineSeconds": 1800,
+            "nodeSelector": {"kubernetes.io/hostname": collector_node},
             "containers": [{
                 "name": "collector", "image": collector_image,
                 "command": ["sh", "-c", "sleep 1800"],
@@ -317,6 +319,7 @@ def prepare(config_path: Path, *, run_id: str, worker_commit: str) -> tuple[dict
         "dcgm_exporter": {"namespace": exporter_namespace, "label_selector": exporter_selector, "port": exporter_port},
         "collector_pod": collector_name,
         "collector_image": collector_image,
+        "collector_node": collector_node,
         "candidates": plan_candidates,
         "ranking_mode": "research-provisional-model-output",
         "production_ready": False,
@@ -394,6 +397,24 @@ def _preflight(plan: dict[str, Any], jobs: list[dict[str, Any]], context: str, o
             or claim.get("namespace") != namespace or claim.get("name") != plan["artifact_pvc"]
             or not nfs.get("server") or not nfs.get("path")):
         raise RuntimeError("artifact PV must be a Bound RWX NFS volume claimed by this namespace/PVC")
+    collector_node = json.loads(_invoke(_kubectl(context, "get", "node", plan["collector_node"], "-o", "json"), cwd=output, log=log))
+    collector_conditions = collector_node.get("status", {}).get("conditions", [])
+    collector_ready = any(c.get("type") == "Ready" and c.get("status") == "True" for c in collector_conditions)
+    if not collector_ready:
+        raise RuntimeError(f"{plan['collector_node']}: collector/master node is not Ready")
+    if any(c.get("type") == "DiskPressure" and c.get("status") == "True" for c in collector_conditions):
+        raise RuntimeError(f"{plan['collector_node']}: collector/master node reports DiskPressure")
+    blocking_taints = [
+        taint for taint in collector_node.get("spec", {}).get("taints", [])
+        if taint.get("effect") in {"NoSchedule", "NoExecute"}
+    ]
+    if blocking_taints:
+        rendered_taints = ", ".join(
+            f"{taint.get('key')}={taint.get('value', '')}:{taint.get('effect')}" for taint in blocking_taints
+        )
+        raise RuntimeError(
+            f"{plan['collector_node']}: collector/master node has blocking taints but collector Pod has no tolerations: {rendered_taints}"
+        )
     existing_jobs = json.loads(_invoke(_kubectl(context, "-n", namespace, "get", "jobs", "-o", "json"), cwd=output, log=log))
     existing_names = {item.get("metadata", {}).get("name") for item in existing_jobs.get("items", [])}
     for item in plan["candidates"]:

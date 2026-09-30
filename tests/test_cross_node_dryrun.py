@@ -28,6 +28,8 @@ class CrossNodeDryrunTests(unittest.TestCase):
         self.assertEqual(plan["source_total_work_units"], 960)
         self.assertEqual(len(jobs), 2)
         self.assertEqual(collector["spec"]["volumes"][0]["persistentVolumeClaim"]["claimName"], "pre6g-artifacts")
+        self.assertEqual(plan["collector_node"], "icclz2")
+        self.assertEqual(collector["spec"]["nodeSelector"]["kubernetes.io/hostname"], "icclz2")
         self.assertEqual({job["spec"]["template"]["spec"]["nodeSelector"]["kubernetes.io/hostname"] for job in jobs}, {"iccl-s3-251230", "mirc516-20250605"})
         for job in jobs:
             container = job["spec"]["template"]["spec"]["containers"][0]
@@ -83,7 +85,7 @@ class CrossNodeDryrunTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as raw, patch.object(DRYRUN.shutil, "which", return_value="kubectl"), patch.object(DRYRUN.subprocess, "run", side_effect=command_result), patch.object(DRYRUN, "_invoke", side_effect=kubectl_result) as invoke:
             resolved = DRYRUN._preflight(plan, jobs, "test-context", Path(raw))
-            self.assertEqual(invoke.call_count, 11)
+            self.assertEqual(invoke.call_count, 12)
             rendered = list(yaml.safe_load_all(resolved.read_text(encoding="utf-8")))
             self.assertEqual({job["spec"]["template"]["spec"]["nodeSelector"]["kubernetes.io/hostname"]: next(row["value"] for row in job["spec"]["template"]["spec"]["containers"][0]["env"] if row["name"] == "DCGM_URL") for job in rendered}, {"iccl-s3-251230": "http://10.42.0.1:9400", "mirc516-20250605": "http://10.42.0.2:9400"})
 

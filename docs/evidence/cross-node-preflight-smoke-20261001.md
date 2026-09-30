@@ -25,12 +25,21 @@ The integrated `--smoke-only` command completed with `[smoke passed]`. Its per-n
 
 Master-side follow-up confirmed both marker files under `smoke/yolo26-smoke-001/`. A label query returned no remaining smoke Pods in the `experiments` namespace.
 
-## Software tests and scope
+## 120-second dry-run follow-up and collector incident
+
+A subsequent integrated `--execute` run (`yolo26-dryrun-001`) completed both candidate profiling Jobs successfully. The master-side NFS export contained the expected ProfileResult, runtime features, discovery file, aligned telemetry, alignment-quality file, application-window file, and raw DCGM/Netdata telemetry for both `iccl-s3-251230` and `mirc516-20250605`.
+
+The pipeline then stopped in the collect phase because the collector Pod had no scheduling constraint and Kubernetes assigned it to `gx10-c206`, which is not part of the 4090/5090 candidate workflow. That Pod failed to mount `pre6g-artifacts-nfs` and never became Ready. This did **not** invalidate the completed profiling artifacts already stored on NFS, but master-side runtime/power prediction and ranking were not reached.
+
+The workflow now requires `collector_node` and the example pins it to master node `icclz2`. The collector Pod uses a hostname `nodeSelector`; preflight also checks that the master/collector node exists, is Ready, has no DiskPressure, and has no blocking `NoSchedule`/`NoExecute` taint while the collector has no tolerations. The master must be able to mount/read the same RWX NFS PVC. GX10 does not need to be added to the workflow or repaired solely for artifact collection.
+
+Existing failed run IDs are still not a resume mechanism: preserve `/srv/pre6g-artifacts/results/<run-id>/` for audit/recovery, and use a new run ID for a fresh integrated execution unless an explicit recovery path is added later.
+
+## Software tests and remaining scope
 
 - GitHub Actions unit tests passed for commit `c08ff9669e762d1a51e9cd58b10ae6b0192db6a2`: [workflow run](https://github.com/terrychen0803/Pre6G_experiment/actions/runs/36768682898).
-- No 120-second profiling Job was submitted.
-- No master-side runtime/power prediction or ranking was performed.
+- The later `yolo26-dryrun-001` run established successful 120-second profiling artifact production on both candidate nodes, but collection failed before master-side runtime/power prediction and ranking.
 - No 30–50 minute training run or PDU comparison was performed.
 
-This evidence validates prerequisites and basic connectivity only. It does not establish successful Nsight trace capture, model prediction quality, or end-to-end training results.
+The evidence therefore supports worker-side profiling and shared-NFS artifact production, plus the earlier smoke checks; it does not yet establish successful end-to-end collection/prediction/ranking, model prediction quality, or full training results.
 
