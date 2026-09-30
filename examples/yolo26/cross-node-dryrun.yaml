@@ -3,6 +3,10 @@ namespace: experiments
 source_job: examples/yolo26/validation-source-job.yaml
 artifact_pvc: pre6g-artifacts
 collector_image: busybox:1.36
+dcgm_exporter:
+  namespace: gpu-monitoring
+  label_selector: app.kubernetes.io/name=dcgm-exporter
+  port: 9400
 candidates:
   - node: iccl-s3-251230
     device_id: RTX4090

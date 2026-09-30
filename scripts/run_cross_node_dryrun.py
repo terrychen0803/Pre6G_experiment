@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import ipaddress
 import json
 import math
 import os
@@ -101,6 +102,12 @@ def prepare(config_path: Path, *, run_id: str, worker_commit: str) -> tuple[dict
         raise ValueError("unsupported cross-node dry-run config schema")
     namespace = _name(str(config["namespace"]), "namespace")
     pvc = _name(str(config["artifact_pvc"]), "artifact_pvc")
+    exporter = config.get("dcgm_exporter") or {}
+    exporter_namespace = _name(str(exporter.get("namespace", "gpu-monitoring")), "DCGM exporter namespace")
+    exporter_selector = str(exporter.get("label_selector", "app.kubernetes.io/name=dcgm-exporter"))
+    exporter_port = int(exporter.get("port", 9400))
+    if not re.fullmatch(r"[A-Za-z0-9./_-]+=[A-Za-z0-9._-]+", exporter_selector) or not 1 <= exporter_port <= 65535:
+        raise ValueError("DCGM exporter selector or port is invalid")
     source_job = _path(str(config["source_job"]))
     source = yaml.safe_load(source_job.read_text(encoding="utf-8"))
     if source.get("apiVersion") != "batch/v1" or source.get("kind") != "Job":
@@ -148,6 +155,12 @@ def prepare(config_path: Path, *, run_id: str, worker_commit: str) -> tuple[dict
         values = _env(container)
         if values["NODE_NAME"].get("value") != node or values["DEVICE_ID"].get("value") != item["device_id"]:
             raise ValueError(f"{node}: profile template identity differs from config")
+        if spec.get("runtimeClassName") != "nvidia":
+            raise ValueError(f"{node}: profile template must use the validated nvidia RuntimeClass")
+        requests = container.get("resources", {}).get("requests", {})
+        limits = container.get("resources", {}).get("limits", {})
+        if requests.get("nvidia.com/gpu.shared") != "1" or limits.get("nvidia.com/gpu.shared") != "1":
+            raise ValueError(f"{node}: profile template must request one validated shared GPU")
         original = _command_text(job)
         if len(CHECKOUT.findall(original)) != 1:
             raise ValueError(f"{node}: template must contain one pinned git checkout SHA")
@@ -172,6 +185,9 @@ def prepare(config_path: Path, *, run_id: str, worker_commit: str) -> tuple[dict
         )
         container["command"][2] = CHECKOUT.sub(lambda match: match.group(1) + worker_commit, wrapped)
         values["TASK_ID"]["value"] = run_id
+        # An old exporter Pod IP in the formal template must never be submitted.
+        # The live endpoint is resolved against the target node at preflight.
+        values["DCGM_URL"]["value"] = "DCGM_ENDPOINT_UNRESOLVED"
         manifest = yaml.safe_load((power_bundle / "manifest.yaml").read_text(encoding="utf-8"))
         if manifest.get("node_binding", {}).get("kubernetes_node") != node:
             raise ValueError(f"{node}: power bundle is bound to another node")
@@ -227,6 +243,7 @@ def prepare(config_path: Path, *, run_id: str, worker_commit: str) -> tuple[dict
         "source_total_work_units": source_work.total_work_units,
         "config_sha256": _digest(config_path),
         "artifact_pvc": pvc,
+        "dcgm_exporter": {"namespace": exporter_namespace, "label_selector": exporter_selector, "port": exporter_port},
         "collector_pod": collector_name,
         "collector_image": collector_image,
         "candidates": plan_candidates,
@@ -252,7 +269,31 @@ def _kubectl(context: str, *arguments: str) -> list[str]:
     return ["kubectl", "--context", context, *arguments]
 
 
-def _preflight(plan: dict[str, Any], context: str, output: Path) -> None:
+def _resolve_dcgm_urls(plan: dict[str, Any], context: str, output: Path) -> dict[str, str]:
+    exporter = plan["dcgm_exporter"]
+    raw = _invoke(
+        _kubectl(context, "-n", exporter["namespace"], "get", "pods", "-l", exporter["label_selector"], "-o", "json"),
+        cwd=output, log=output / "logs" / "kubectl.log",
+    )
+    pods = json.loads(raw).get("items", [])
+    urls: dict[str, str] = {}
+    for item in plan["candidates"]:
+        node = item["node"]
+        matches = [pod for pod in pods if pod.get("spec", {}).get("nodeName") == node]
+        if len(matches) != 1:
+            raise RuntimeError(f"{node}: expected exactly one DCGM exporter Pod, found {len(matches)}")
+        pod = matches[0]
+        status = pod.get("status", {})
+        ready = any(c.get("type") == "Ready" and c.get("status") == "True" for c in status.get("conditions", []))
+        if status.get("phase") != "Running" or not ready or not status.get("podIP"):
+            raise RuntimeError(f"{node}: DCGM exporter Pod is not Running/Ready with a Pod IP")
+        address = ipaddress.ip_address(status["podIP"])
+        host = f"[{address}]" if address.version == 6 else str(address)
+        urls[node] = f"http://{host}:{exporter['port']}"
+    return urls
+
+
+def _preflight(plan: dict[str, Any], jobs: list[dict[str, Any]], context: str, output: Path) -> Path:
     worker_check = subprocess.run(
         ["git", "cat-file", "-e", f"{plan['worker_commit']}:scripts/run_command_with_end_marker.py"],
         cwd=ROOT, capture_output=True, text=True, check=False,
@@ -266,19 +307,44 @@ def _preflight(plan: dict[str, Any], context: str, output: Path) -> None:
     if current != context:
         raise RuntimeError(f"current kube context {current!r} differs from required {context!r}")
     namespace = plan["namespace"]
+    _invoke(_kubectl(context, "get", "namespace", namespace, "-o", "json"), cwd=output, log=log)
+    _invoke(_kubectl(context, "get", "runtimeclass", "nvidia", "-o", "json"), cwd=output, log=log)
     pvc = json.loads(_invoke(_kubectl(context, "-n", namespace, "get", "pvc", plan["artifact_pvc"], "-o", "json"), cwd=output, log=log))
     if pvc.get("status", {}).get("phase") != "Bound" or "ReadWriteMany" not in pvc.get("spec", {}).get("accessModes", []):
         raise RuntimeError("artifact PVC must be Bound and ReadWriteMany for simultaneous cross-node profiles")
+    volume_name = pvc.get("spec", {}).get("volumeName")
+    if not volume_name:
+        raise RuntimeError("artifact PVC is Bound but has no backing PV name")
+    pv = json.loads(_invoke(_kubectl(context, "get", "pv", volume_name, "-o", "json"), cwd=output, log=log))
+    pv_spec = pv.get("spec", {})
+    claim = pv_spec.get("claimRef", {})
+    nfs = pv_spec.get("nfs", {})
+    if (pv.get("status", {}).get("phase") != "Bound" or "ReadWriteMany" not in pv_spec.get("accessModes", [])
+            or claim.get("namespace") != namespace or claim.get("name") != plan["artifact_pvc"]
+            or not nfs.get("server") or not nfs.get("path")):
+        raise RuntimeError("artifact PV must be a Bound RWX NFS volume claimed by this namespace/PVC")
+    existing_jobs = json.loads(_invoke(_kubectl(context, "-n", namespace, "get", "jobs", "-o", "json"), cwd=output, log=log))
+    existing_names = {item.get("metadata", {}).get("name") for item in existing_jobs.get("items", [])}
     for item in plan["candidates"]:
         node = json.loads(_invoke(_kubectl(context, "get", "node", item["node"], "-o", "json"), cwd=output, log=log))
         ready = any(c.get("type") == "Ready" and c.get("status") == "True" for c in node.get("status", {}).get("conditions", []))
         if not ready or int(node.get("status", {}).get("allocatable", {}).get("nvidia.com/gpu.shared", "0")) < 1:
             raise RuntimeError(f"{item['node']}: node is not Ready or has no allocatable shared GPU")
-        existing = subprocess.run(_kubectl(context, "-n", namespace, "get", "job", item["job_name"], "-o", "name"), capture_output=True, text=True, check=False)
-        if existing.returncode == 0:
+        if any(c.get("type") == "DiskPressure" and c.get("status") == "True" for c in node.get("status", {}).get("conditions", [])):
+            raise RuntimeError(f"{item['node']}: node reports DiskPressure")
+        if item["job_name"] in existing_names:
             raise RuntimeError(f"Job already exists; refusing to reuse or overwrite: {item['job_name']}")
-    _invoke(_kubectl(context, "-n", namespace, "apply", "--dry-run=server", "-f", str(output / "dryrun-jobs.yaml")), cwd=output, log=log)
+    urls = _resolve_dcgm_urls(plan, context, output)
+    for job in jobs:
+        node = job["spec"]["template"]["spec"]["nodeSelector"]["kubernetes.io/hostname"]
+        values = _env(job["spec"]["template"]["spec"]["containers"][0])
+        values["DCGM_URL"]["value"] = urls[node]
+    resolved = output / "dryrun-jobs-resolved.yaml"
+    resolved.write_text(yaml.safe_dump_all(jobs, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    _write_json(output / "dcgm-endpoints.json", {"schema_version": "pre6g.dcgm-endpoints/v1", "run_id": plan["run_id"], "urls_by_node": urls})
+    _invoke(_kubectl(context, "-n", namespace, "apply", "--dry-run=server", "-f", str(resolved)), cwd=output, log=log)
     _invoke(_kubectl(context, "-n", namespace, "apply", "--dry-run=server", "-f", str(output / "collector-pod.yaml")), cwd=output, log=log)
+    return resolved
 
 
 def _wait_jobs(plan: dict[str, Any], context: str, output: Path, timeout_s: int) -> None:
@@ -442,18 +508,21 @@ def main() -> int:
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--worker-commit", required=True, help="Full pushed Git SHA checked out inside each worker Job")
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--preflight-only", action="store_true", help="Check live cluster prerequisites and render resolved Jobs without creating resources")
     parser.add_argument("--execute", action="store_true", help="Actually create all dry-run Jobs in Kubernetes")
-    parser.add_argument("--kube-context", help="Required with --execute; must equal current kube context")
+    parser.add_argument("--kube-context", help="Required with --preflight-only or --execute; must equal current kube context")
     parser.add_argument("--timeout-seconds", type=int, default=900)
     args = parser.parse_args()
-    if args.execute and not args.kube_context:
-        parser.error("--execute requires --kube-context")
+    if args.execute and args.preflight_only:
+        parser.error("--preflight-only and --execute are mutually exclusive")
+    if (args.execute or args.preflight_only) and not args.kube_context:
+        parser.error("--preflight-only and --execute require --kube-context")
     if args.timeout_seconds <= 0:
         parser.error("--timeout-seconds must be positive")
     output = args.output_dir.resolve()
     output.mkdir(parents=True, exist_ok=True)
     summary = output / "cross-node-run-summary.json"
-    if args.execute and summary.exists() and _json(summary).get("status") == "completed":
+    if summary.exists() and _json(summary).get("status") == "completed":
         parser.error("this run already completed; use a new run ID and output directory")
     started_at = datetime.now(timezone.utc).isoformat()
     phase = "prepare"
@@ -471,14 +540,18 @@ def main() -> int:
             _write_json(plan_path, plan)
             jobs_path.write_text(yaml.safe_dump_all(jobs, sort_keys=False, allow_unicode=True), encoding="utf-8")
             collector_path.write_text(yaml.safe_dump(collector, sort_keys=False, allow_unicode=True), encoding="utf-8")
-        if not args.execute:
+        if not args.execute and not args.preflight_only:
             _write_json(summary, {"schema_version": "pre6g.cross-node-run-summary/v1", "status": "planned", "started_at": started_at, "run_id": args.run_id, "plan": str(plan_path)})
             print(f"[planned] {plan_path}; no Kubernetes Job was created")
             return 0
         phase = "preflight"
-        _preflight(plan, args.kube_context, output)
+        resolved_jobs_path = _preflight(plan, jobs, args.kube_context, output)
+        if args.preflight_only:
+            _write_json(summary, {"schema_version": "pre6g.cross-node-run-summary/v1", "status": "preflight_passed", "started_at": started_at, "finished_at": datetime.now(timezone.utc).isoformat(), "run_id": args.run_id, "resolved_jobs": str(resolved_jobs_path)})
+            print(f"[preflight passed] {resolved_jobs_path}; no Kubernetes resource was created")
+            return 0
         phase = "submit"
-        _invoke(_kubectl(args.kube_context, "-n", plan["namespace"], "create", "-f", str(jobs_path)), cwd=output, log=output / "logs" / "kubectl.log")
+        _invoke(_kubectl(args.kube_context, "-n", plan["namespace"], "create", "-f", str(resolved_jobs_path)), cwd=output, log=output / "logs" / "kubectl.log")
         phase = "wait"
         _wait_jobs(plan, args.kube_context, output, args.timeout_seconds)
         phase = "collect"
