@@ -8,8 +8,7 @@ production-validation workflow can continue.
 
 This is an explicit experiment-level override of the production readiness gate.
 It does **not** change the strict automatic-ranking contract in
-`src/pre6g_experiment/decision.py`. Power-model OOD/readiness limitations are
-preserved in the evidence.
+`src/pre6g_experiment/decision.py`. Power-model readiness limitations and scaler-range diagnostics are preserved in the evidence.
 
 The comparison uses:
 
@@ -47,8 +46,8 @@ power_model                           pdu1-outlet1-20260416-20260612
 representative_power_method           time-weighted mean over natural-exit proxy window
 predicted_node_total_steady_power_w   354.3231773345533
 power_model_status                    validation_required
-power_ood                             true
-power_ood_detail                      GPU Mem Used(MB), 109/109 rows
+power_range_exceeded                  true
+power_range_detail                    GPU Mem Used(MB), 109/109 rows outside scaler reference range
 
 energy_j_per_work_unit                22.43603529966374
 predicted_steady_gross_energy_j       21538.59388767719
@@ -69,8 +68,8 @@ power_model                           pdu1-outlet7-rtx5090-20260416-20260612
 representative_power_method           time-weighted mean over formal profile crop
 predicted_node_total_steady_power_w   462.28196331549725
 power_model_status                    validation_required
-power_ood                             true
-power_ood_detail                      GPU Power(W) exceeds recorded range in part of the window
+power_range_exceeded                  true
+power_range_detail                    GPU Power(W) exceeds scaler reference range in part of the window
 
 energy_j_per_work_unit                59.529326859692404
 predicted_steady_gross_energy_j       57148.153785304705
@@ -92,8 +91,7 @@ The RTX4090 value is approximately 62.31% lower than the RTX5090 value for the
 same 960-work-unit steady-work estimate.
 
 This selection is a **provisional research placement**, not a production-ready
-automatic ranking claim, because both node-bound power bundles remain
-`validation_required` and currently report OOD observations.
+automatic ranking claim, because both node-bound power bundles remain `validation_required`. Their scaler-range exceedance flags are diagnostic only and do not invalidate the ONNX predictions.
 
 ## Next phase
 
@@ -139,3 +137,22 @@ Rank 2: mirc516-20250605 (RTX5090)
 This completes the current requested workflow through the
 `RANKED -> NODE_SELECTED` stage. Production-job execution and ground-truth
 validation are intentionally deferred.
+
+
+## Power range-policy correction
+
+The original power-model test path does not implement OOD detection. The
+integration previously labeled any normalized input below 0 or above 1 as
+`ood=true`; this was a Pre6G-side diagnostic based on scaler min/max values,
+not a model-native judgment.
+
+That terminology is now corrected:
+
+~~~text
+old: ood / ood_messages
+new: range_exceeded / range_warnings
+~~~
+
+Scaler-range exceedance does not block the power prediction or this ranking
+test. The previously calculated RTX4090 and RTX5090 power values and final
+energy ordering are unchanged.
