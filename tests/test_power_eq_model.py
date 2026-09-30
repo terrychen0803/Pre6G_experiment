@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from pre6g_experiment.power_eq_model import load_records, load_scaler
+from pre6g_experiment.power_eq_model import load_records, load_scaler, prepare_inputs
 
 
 class PowerEqModelTests(unittest.TestCase):
@@ -43,6 +43,26 @@ class PowerEqModelTests(unittest.TestCase):
         self.assertEqual(scaler["core_indices"], ["CPU User%"])
         self.assertEqual(scaler["direct_indices"], ["GPU Power(W)"])
         self.assertEqual(len(scaler["other_indices"]), 5)
+
+
+    def test_scaler_range_exceedance_is_diagnostic_only(self):
+        scaler = {
+            "feature_cols": ["GPU Power(W)"],
+            "x_mins": [0.0],
+            "x_data_ranges": [100.0],
+            "core_indices": [],
+            "direct_indices": ["GPU Power(W)"],
+            "other_indices": [],
+            "y_min": 0.0,
+            "y_data_range": 1.0,
+        }
+        inputs, warnings = prepare_inputs(
+            [{"GPU Power(W)": 125.0}],
+            scaler,
+        )
+        self.assertAlmostEqual(float(inputs["x_direct"][0, 0]), 1.25)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("scaler reference range", warnings[0])
 
 
 if __name__ == "__main__":
