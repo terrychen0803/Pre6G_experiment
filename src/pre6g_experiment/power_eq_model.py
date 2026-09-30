@@ -3,7 +3,6 @@ from __future__ import annotations
 import csv
 import json
 import math
-import warnings
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -73,10 +72,13 @@ def _value(row: dict[str, Any], configured_name: str) -> float:
 def prepare_inputs(
     records: Iterable[dict[str, Any]],
     scaler: dict[str, Any],
-    *,
-    reject_out_of_domain: bool = False,
 ) -> tuple[dict[str, Any], list[str]]:
-    """Min-max scale records and split them into the ONNX model's three inputs."""
+    """Min-max scale records and return diagnostic scaler-range warnings.
+
+    The scaler min/max values are preprocessing reference bounds from the
+    supplied artifact. They are not treated as an OOD detector or as a
+    prediction-validity gate.
+    """
     try:
         import numpy as np
     except ImportError as exc:  # pragma: no cover - depends on optional runtime
@@ -89,7 +91,7 @@ def prepare_inputs(
         raise ValueError("Input contains no telemetry records")
 
     columns: dict[str, list[float]] = {}
-    out_of_domain: list[str] = []
+    range_warnings: list[str] = []
     for index, (name, minimum, data_range) in enumerate(
         zip(scaler["feature_cols"], scaler["x_mins"], scaler["x_data_ranges"])
     ):
@@ -102,15 +104,12 @@ def prepare_inputs(
             raw = _value(row, name)
             scaled = (raw - minimum) / data_range
             if scaled < 0.0 or scaled > 1.0:
-                out_of_domain.append(
-                    f"row {row_number}: {name}={raw:g} outside "
-                    f"[{minimum:g}, {minimum + data_range:g}]"
+                range_warnings.append(
+                    f"row {row_number}: {name}={raw:g} outside scaler reference "
+                    f"range [{minimum:g}, {minimum + data_range:g}]"
                 )
             scaled_values.append(scaled)
         columns[name] = scaled_values
-
-    if out_of_domain and reject_out_of_domain:
-        raise ValueError("Out-of-domain telemetry: " + "; ".join(out_of_domain))
 
     def matrix(names: list[str]):
         return np.asarray(
@@ -124,7 +123,7 @@ def prepare_inputs(
             "x_direct": matrix(scaler["direct_indices"]),
             "x_other": matrix(scaler["other_indices"]),
         },
-        out_of_domain,
+        range_warnings,
     )
 
 
@@ -132,10 +131,12 @@ def predict_records(
     records: list[dict[str, Any]],
     model_path: Path,
     scaler_path: Path,
-    *,
-    reject_out_of_domain: bool = False,
 ) -> tuple[list[dict[str, Any]], list[str]]:
-    """Run ONNX inference and append PREDICTED_POWER_W to each input record."""
+    """Run ONNX inference and append PREDICTED_POWER_W to each input record.
+
+    Values outside the scaler reference bounds are still passed to the model
+    without clipping, matching the supplied model's inference behavior.
+    """
     try:
         import onnxruntime as ort
     except ImportError as exc:  # pragma: no cover - depends on optional runtime
@@ -145,14 +146,7 @@ def predict_records(
         ) from exc
 
     scaler = load_scaler(scaler_path)
-    inputs, out_of_domain = prepare_inputs(
-        records, scaler, reject_out_of_domain=reject_out_of_domain
-    )
-    if out_of_domain:
-        warnings.warn(
-            f"{len(out_of_domain)} feature value(s) are outside the recorded training range",
-            stacklevel=2,
-        )
+    inputs, range_warnings = prepare_inputs(records, scaler)
 
     session = ort.InferenceSession(str(model_path), providers=["CPUExecutionProvider"])
     expected = {item.name for item in session.get_inputs()}
@@ -172,7 +166,7 @@ def predict_records(
             {**row, "PREDICTED_POWER_W": float(prediction)}
             for row, prediction in zip(records, predictions)
         ],
-        out_of_domain,
+        range_warnings,
     )
 
 
