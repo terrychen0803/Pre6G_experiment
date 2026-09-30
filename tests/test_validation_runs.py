@@ -60,7 +60,11 @@ class ValidationRunTests(unittest.TestCase):
         self.assertEqual(result["planned_epochs"], 1639)
         self.assertEqual(result["planned_total_work_units"], 52448)
         for rendered in jobs:
-            self.assertIn("epochs=1639", rendered["spec"]["template"]["spec"]["containers"][0]["args"])
+            args = rendered["spec"]["template"]["spec"]["containers"][0]["args"]
+            self.assertIn("epochs=1639", args)
+            self.assertIn("val=False", args)
+            self.assertIn("save=False", args)
+            self.assertIn("patience=0", args)
 
     def test_discovery_mismatch_fails(self):
         self.discovery["work"]["total_units"] = 100
