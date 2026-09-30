@@ -167,6 +167,12 @@ def build_stages(args: argparse.Namespace, output: Path) -> list[Stage]:
             "--timeout-seconds", str(args.timeout_seconds),
         )
         outputs = [output / "cross-node-plan.json", output / "cross-node-run-summary.json"]
+        if args.preflight_only:
+            command.extend(["--preflight-only", "--kube-context", args.kube_context])
+            outputs.extend([output / "dryrun-jobs-resolved.yaml", output / "dcgm-endpoints.json"])
+        if args.smoke_only:
+            command.extend(["--smoke-only", "--kube-context", args.kube_context])
+            outputs.append(output / "smoke-result.json")
         if args.execute:
             command.extend(["--execute", "--kube-context", args.kube_context])
             outputs.extend([output / "ranking-input.json", output / "provisional-ranking.json"])
@@ -457,6 +463,8 @@ def parser() -> argparse.ArgumentParser:
     root.add_argument("--cross-node-config", type=Path)
     root.add_argument("--run-id")
     root.add_argument("--worker-commit")
+    root.add_argument("--preflight-only", action="store_true")
+    root.add_argument("--smoke-only", action="store_true")
     root.add_argument("--execute", action="store_true")
     root.add_argument("--kube-context")
     root.add_argument("--timeout-seconds", type=int, default=900)
@@ -481,13 +489,15 @@ def parser() -> argparse.ArgumentParser:
 
 
 def validate(args: argparse.Namespace) -> None:
-    if args.execute and args.mode != "cross-node":
-        raise ValueError("--execute is only supported in cross-node mode")
+    if (args.execute or args.preflight_only or args.smoke_only) and args.mode != "cross-node":
+        raise ValueError("--preflight-only, --smoke-only, and --execute are only supported in cross-node mode")
     if args.mode == "cross-node":
         if args.cross_node_config is None or not args.run_id or not args.worker_commit:
             raise ValueError("cross-node requires --cross-node-config, --run-id, and --worker-commit")
-        if args.execute and not args.kube_context:
-            raise ValueError("--execute requires --kube-context")
+        if sum((args.preflight_only, args.smoke_only, args.execute)) > 1:
+            raise ValueError("--preflight-only, --smoke-only, and --execute are mutually exclusive")
+        if (args.execute or args.preflight_only or args.smoke_only) and not args.kube_context:
+            raise ValueError("--preflight-only, --smoke-only, and --execute require --kube-context")
         if args.resume:
             raise ValueError("cross-node does not support --resume")
         return

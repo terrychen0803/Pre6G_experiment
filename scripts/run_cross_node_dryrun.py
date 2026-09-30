@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import ipaddress
 import json
 import math
 import os
@@ -37,6 +38,77 @@ ARTIFACTS = (
     "telemetry/alignment-quality.json",
     "telemetry/application-window.json",
 )
+SMOKE_PROGRAM = r'''
+import json
+import os
+import subprocess
+import time
+import urllib.request
+from pathlib import Path
+
+run_id = os.environ["RUN_ID"]
+node = os.environ["NODE_NAME"]
+peer = os.environ["PEER_NODE"]
+gpu_uuid = os.environ["GPU_UUID"]
+
+def command(*args):
+    result = subprocess.run(args, check=True, capture_output=True, text=True, timeout=45)
+    return (result.stdout + result.stderr).strip()
+
+visible = command("nvidia-smi", "--query-gpu=uuid", "--format=csv,noheader").splitlines()
+if gpu_uuid not in [value.strip() for value in visible]:
+    raise RuntimeError("expected GPU UUID is not visible inside this Pod")
+nsight_version = command("/opt/pre6g/nsight/bin/nsys", "--version")
+command("git", "ls-remote", "https://github.com/terrychen0803/Pre6G_experiment.git", "HEAD")
+
+with urllib.request.urlopen(os.environ["DCGM_URL"].rstrip("/") + "/metrics", timeout=15) as response:
+    dcgm = response.read().decode("utf-8")
+required = (
+    "DCGM_FI_DEV_GPU_UTIL", "DCGM_FI_DEV_FB_USED",
+    "DCGM_FI_DEV_GPU_TEMP", "DCGM_FI_DEV_POWER_USAGE",
+)
+missing = [metric for metric in required if not any(
+    line.startswith(metric + "{") and ('UUID="' + gpu_uuid + '"') in line
+    for line in dcgm.splitlines()
+)]
+if missing:
+    raise RuntimeError("DCGM endpoint lacks metrics for expected GPU UUID: " + ", ".join(missing))
+
+with urllib.request.urlopen(os.environ["NETDATA_URL"].rstrip("/") + "/api/v1/allmetrics?format=json", timeout=15) as response:
+    netdata = json.load(response)
+if not isinstance(netdata, dict) or not netdata:
+    raise RuntimeError("Netdata did not return nonempty host metrics")
+
+root = Path("/shared/smoke") / run_id
+os.umask(0o022)
+own = root / node
+own.mkdir(parents=True, exist_ok=True)
+marker = own / "marker.json"
+marker.write_text(json.dumps({"run_id": run_id, "node": node, "gpu_uuid": gpu_uuid}) + "\n", encoding="utf-8")
+deadline = time.monotonic() + 90
+peer_marker = root / peer / "marker.json"
+while not peer_marker.is_file() and time.monotonic() < deadline:
+    time.sleep(1)
+if not peer_marker.is_file():
+    raise RuntimeError("peer marker was not visible across the NFS PVC")
+other = json.loads(peer_marker.read_text(encoding="utf-8"))
+if other.get("run_id") != run_id or other.get("node") != peer:
+    raise RuntimeError("peer NFS marker identity mismatch")
+
+print("PRE6G_SMOKE_RESULT=" + json.dumps({
+    "schema_version": "pre6g.cross-node-smoke-result/v1",
+    "passed": True,
+    "run_id": run_id,
+    "node": node,
+    "gpu_uuid": gpu_uuid,
+    "peer_node": peer,
+    "nfs_peer_read": True,
+    "nsight_version": nsight_version,
+    "dcgm_metrics": list(required),
+    "netdata_chart_count": len(netdata),
+    "github_access": True,
+}), flush=True)
+'''
 
 
 def _name(value: str, label: str) -> str:
@@ -92,6 +164,39 @@ def _env(container: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return values
 
 
+def _check_control_side_dependencies(plan: dict[str, Any]) -> None:
+    """Fail before GPU profiling when master-side prediction cannot run."""
+    try:
+        import numpy  # noqa: F401
+        import onnxruntime as ort
+    except (ImportError, OSError) as exc:
+        raise RuntimeError(
+            "control-side power prediction dependencies are unavailable; "
+            "install requirements-power-model.txt before preflight/execute"
+        ) from exc
+
+    providers = set(ort.get_available_providers())
+    if "CPUExecutionProvider" not in providers:
+        raise RuntimeError(
+            "ONNX Runtime is installed but CPUExecutionProvider is unavailable on the control side"
+        )
+
+    for item in plan["candidates"]:
+        bundle = Path(item["power_bundle"])
+        scaler = _json(bundle / "scaler.json")
+        if not scaler:
+            raise RuntimeError(f"{item['node']}: power scaler.json is empty")
+        try:
+            ort.InferenceSession(
+                str(bundle / "model.onnx"),
+                providers=["CPUExecutionProvider"],
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                f"{item['node']}: power model cannot be loaded by ONNX Runtime on the control side: {exc}"
+            ) from exc
+
+
 def prepare(config_path: Path, *, run_id: str, worker_commit: str) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any]]:
     _name(run_id, "run_id")
     if not COMMIT.fullmatch(worker_commit):
@@ -101,10 +206,24 @@ def prepare(config_path: Path, *, run_id: str, worker_commit: str) -> tuple[dict
         raise ValueError("unsupported cross-node dry-run config schema")
     namespace = _name(str(config["namespace"]), "namespace")
     pvc = _name(str(config["artifact_pvc"]), "artifact_pvc")
+    collector_node = _name(str(config["collector_node"]), "collector_node")
+    exporter = config.get("dcgm_exporter") or {}
+    exporter_namespace = _name(str(exporter.get("namespace", "gpu-monitoring")), "DCGM exporter namespace")
+    exporter_selector = str(exporter.get("label_selector", "app.kubernetes.io/name=dcgm-exporter"))
+    exporter_port = int(exporter.get("port", 9400))
+    if not re.fullmatch(r"[A-Za-z0-9./_-]+=[A-Za-z0-9._-]+", exporter_selector) or not 1 <= exporter_port <= 65535:
+        raise ValueError("DCGM exporter selector or port is invalid")
     source_job = _path(str(config["source_job"]))
     source = yaml.safe_load(source_job.read_text(encoding="utf-8"))
     if source.get("apiVersion") != "batch/v1" or source.get("kind") != "Job":
         raise ValueError("source_job must be batch/v1 Job")
+    source_annotations = source.get("metadata", {}).get("annotations", {})
+    if (source_annotations.get("pre6g.io/experiment-stage") != "functional-validation"
+            or source_annotations.get("pre6g.io/test-purpose") != "cross-node-pipeline-integration"
+            or source_annotations.get("pre6g.io/production-result") != "false"):
+        raise ValueError(
+            "source_job must be explicitly marked as the functional-validation integration fixture"
+        )
     source_work = estimate_work(source)
     if source_work.adapter != "yolo" or source_work.work_unit != "training_iteration" or source_work.total_work_units is None:
         raise ValueError("source_job must expose a known YOLO training iteration count")
@@ -136,6 +255,11 @@ def prepare(config_path: Path, *, run_id: str, worker_commit: str) -> tuple[dict
         job = yaml.safe_load(template_path.read_text(encoding="utf-8"))
         if job.get("apiVersion") != "batch/v1" or job.get("kind") != "Job":
             raise ValueError(f"{template_path}: expected batch/v1 Job")
+        annotations = job.get("metadata", {}).get("annotations", {})
+        if (annotations.get("pre6g.io/experiment-stage") != "functional-validation"
+                or annotations.get("pre6g.io/test-purpose") != "cross-node-pipeline-integration"
+                or annotations.get("pre6g.io/production-result") != "false"):
+            raise ValueError(f"{template_path}: profile template is not explicitly marked functional-validation")
         if job["metadata"].get("namespace") != namespace:
             raise ValueError(f"{node}: profile template namespace differs from config")
         spec = job["spec"]["template"]["spec"]
@@ -148,6 +272,12 @@ def prepare(config_path: Path, *, run_id: str, worker_commit: str) -> tuple[dict
         values = _env(container)
         if values["NODE_NAME"].get("value") != node or values["DEVICE_ID"].get("value") != item["device_id"]:
             raise ValueError(f"{node}: profile template identity differs from config")
+        if spec.get("runtimeClassName") != "nvidia":
+            raise ValueError(f"{node}: profile template must use the validated nvidia RuntimeClass")
+        requests = container.get("resources", {}).get("requests", {})
+        limits = container.get("resources", {}).get("limits", {})
+        if requests.get("nvidia.com/gpu.shared") != "1" or limits.get("nvidia.com/gpu.shared") != "1":
+            raise ValueError(f"{node}: profile template must request one validated shared GPU")
         original = _command_text(job)
         if len(CHECKOUT.findall(original)) != 1:
             raise ValueError(f"{node}: template must contain one pinned git checkout SHA")
@@ -172,6 +302,9 @@ def prepare(config_path: Path, *, run_id: str, worker_commit: str) -> tuple[dict
         )
         container["command"][2] = CHECKOUT.sub(lambda match: match.group(1) + worker_commit, wrapped)
         values["TASK_ID"]["value"] = run_id
+        # An old exporter Pod IP in the formal template must never be submitted.
+        # The live endpoint is resolved against the target node at preflight.
+        values["DCGM_URL"]["value"] = "DCGM_ENDPOINT_UNRESOLVED"
         manifest = yaml.safe_load((power_bundle / "manifest.yaml").read_text(encoding="utf-8"))
         if manifest.get("node_binding", {}).get("kubernetes_node") != node:
             raise ValueError(f"{node}: power bundle is bound to another node")
@@ -208,6 +341,7 @@ def prepare(config_path: Path, *, run_id: str, worker_commit: str) -> tuple[dict
         "metadata": {"name": collector_name, "namespace": namespace, "labels": {"pre6g.io/dryrun-id": run_id}},
         "spec": {
             "restartPolicy": "Never", "activeDeadlineSeconds": 1800,
+            "nodeSelector": {"kubernetes.io/hostname": collector_node},
             "containers": [{
                 "name": "collector", "image": collector_image,
                 "command": ["sh", "-c", "sleep 1800"],
@@ -225,10 +359,15 @@ def prepare(config_path: Path, *, run_id: str, worker_commit: str) -> tuple[dict
         "source_job": str(source_job),
         "source_job_sha256": _digest(source_job),
         "source_total_work_units": source_work.total_work_units,
+        "experiment_stage": "functional-validation",
+        "test_purpose": "cross-node-pipeline-integration",
+        "production_result": False,
         "config_sha256": _digest(config_path),
         "artifact_pvc": pvc,
+        "dcgm_exporter": {"namespace": exporter_namespace, "label_selector": exporter_selector, "port": exporter_port},
         "collector_pod": collector_name,
         "collector_image": collector_image,
+        "collector_node": collector_node,
         "candidates": plan_candidates,
         "ranking_mode": "research-provisional-model-output",
         "production_ready": False,
@@ -252,13 +391,38 @@ def _kubectl(context: str, *arguments: str) -> list[str]:
     return ["kubectl", "--context", context, *arguments]
 
 
-def _preflight(plan: dict[str, Any], context: str, output: Path) -> None:
+def _resolve_dcgm_urls(plan: dict[str, Any], context: str, output: Path) -> dict[str, str]:
+    exporter = plan["dcgm_exporter"]
+    raw = _invoke(
+        _kubectl(context, "-n", exporter["namespace"], "get", "pods", "-l", exporter["label_selector"], "-o", "json"),
+        cwd=output, log=output / "logs" / "kubectl.log",
+    )
+    pods = json.loads(raw).get("items", [])
+    urls: dict[str, str] = {}
+    for item in plan["candidates"]:
+        node = item["node"]
+        matches = [pod for pod in pods if pod.get("spec", {}).get("nodeName") == node]
+        if len(matches) != 1:
+            raise RuntimeError(f"{node}: expected exactly one DCGM exporter Pod, found {len(matches)}")
+        pod = matches[0]
+        status = pod.get("status", {})
+        ready = any(c.get("type") == "Ready" and c.get("status") == "True" for c in status.get("conditions", []))
+        if status.get("phase") != "Running" or not ready or not status.get("podIP"):
+            raise RuntimeError(f"{node}: DCGM exporter Pod is not Running/Ready with a Pod IP")
+        address = ipaddress.ip_address(status["podIP"])
+        host = f"[{address}]" if address.version == 6 else str(address)
+        urls[node] = f"http://{host}:{exporter['port']}"
+    return urls
+
+
+def _preflight(plan: dict[str, Any], jobs: list[dict[str, Any]], context: str, output: Path) -> Path:
     worker_check = subprocess.run(
         ["git", "cat-file", "-e", f"{plan['worker_commit']}:scripts/run_command_with_end_marker.py"],
         cwd=ROOT, capture_output=True, text=True, check=False,
     )
     if worker_check.returncode:
         raise RuntimeError("worker_commit does not contain the required application-window wrapper; use a pushed commit containing this feature")
+    _check_control_side_dependencies(plan)
     if shutil.which("kubectl") is None:
         raise RuntimeError("kubectl is unavailable; plan files were generated, but no Job was submitted")
     log = output / "logs" / "kubectl.log"
@@ -266,19 +430,186 @@ def _preflight(plan: dict[str, Any], context: str, output: Path) -> None:
     if current != context:
         raise RuntimeError(f"current kube context {current!r} differs from required {context!r}")
     namespace = plan["namespace"]
+    _invoke(_kubectl(context, "get", "namespace", namespace, "-o", "json"), cwd=output, log=log)
+    _invoke(_kubectl(context, "get", "runtimeclass", "nvidia", "-o", "json"), cwd=output, log=log)
     pvc = json.loads(_invoke(_kubectl(context, "-n", namespace, "get", "pvc", plan["artifact_pvc"], "-o", "json"), cwd=output, log=log))
     if pvc.get("status", {}).get("phase") != "Bound" or "ReadWriteMany" not in pvc.get("spec", {}).get("accessModes", []):
         raise RuntimeError("artifact PVC must be Bound and ReadWriteMany for simultaneous cross-node profiles")
+    volume_name = pvc.get("spec", {}).get("volumeName")
+    if not volume_name:
+        raise RuntimeError("artifact PVC is Bound but has no backing PV name")
+    pv = json.loads(_invoke(_kubectl(context, "get", "pv", volume_name, "-o", "json"), cwd=output, log=log))
+    pv_spec = pv.get("spec", {})
+    claim = pv_spec.get("claimRef", {})
+    nfs = pv_spec.get("nfs", {})
+    if (pv.get("status", {}).get("phase") != "Bound" or "ReadWriteMany" not in pv_spec.get("accessModes", [])
+            or claim.get("namespace") != namespace or claim.get("name") != plan["artifact_pvc"]
+            or not nfs.get("server") or not nfs.get("path")):
+        raise RuntimeError("artifact PV must be a Bound RWX NFS volume claimed by this namespace/PVC")
+    collector_node = json.loads(_invoke(_kubectl(context, "get", "node", plan["collector_node"], "-o", "json"), cwd=output, log=log))
+    collector_conditions = collector_node.get("status", {}).get("conditions", [])
+    collector_ready = any(c.get("type") == "Ready" and c.get("status") == "True" for c in collector_conditions)
+    if not collector_ready:
+        raise RuntimeError(f"{plan['collector_node']}: collector/master node is not Ready")
+    if any(c.get("type") == "DiskPressure" and c.get("status") == "True" for c in collector_conditions):
+        raise RuntimeError(f"{plan['collector_node']}: collector/master node reports DiskPressure")
+    blocking_taints = [
+        taint for taint in collector_node.get("spec", {}).get("taints", [])
+        if taint.get("effect") in {"NoSchedule", "NoExecute"}
+    ]
+    if blocking_taints:
+        rendered_taints = ", ".join(
+            f"{taint.get('key')}={taint.get('value', '')}:{taint.get('effect')}" for taint in blocking_taints
+        )
+        raise RuntimeError(
+            f"{plan['collector_node']}: collector/master node has blocking taints but collector Pod has no tolerations: {rendered_taints}"
+        )
+    existing_jobs = json.loads(_invoke(_kubectl(context, "-n", namespace, "get", "jobs", "-o", "json"), cwd=output, log=log))
+    existing_names = {item.get("metadata", {}).get("name") for item in existing_jobs.get("items", [])}
     for item in plan["candidates"]:
         node = json.loads(_invoke(_kubectl(context, "get", "node", item["node"], "-o", "json"), cwd=output, log=log))
         ready = any(c.get("type") == "Ready" and c.get("status") == "True" for c in node.get("status", {}).get("conditions", []))
         if not ready or int(node.get("status", {}).get("allocatable", {}).get("nvidia.com/gpu.shared", "0")) < 1:
             raise RuntimeError(f"{item['node']}: node is not Ready or has no allocatable shared GPU")
-        existing = subprocess.run(_kubectl(context, "-n", namespace, "get", "job", item["job_name"], "-o", "name"), capture_output=True, text=True, check=False)
-        if existing.returncode == 0:
+        if any(c.get("type") == "DiskPressure" and c.get("status") == "True" for c in node.get("status", {}).get("conditions", [])):
+            raise RuntimeError(f"{item['node']}: node reports DiskPressure")
+        if item["job_name"] in existing_names:
             raise RuntimeError(f"Job already exists; refusing to reuse or overwrite: {item['job_name']}")
-    _invoke(_kubectl(context, "-n", namespace, "apply", "--dry-run=server", "-f", str(output / "dryrun-jobs.yaml")), cwd=output, log=log)
+    urls = _resolve_dcgm_urls(plan, context, output)
+    for job in jobs:
+        node = job["spec"]["template"]["spec"]["nodeSelector"]["kubernetes.io/hostname"]
+        values = _env(job["spec"]["template"]["spec"]["containers"][0])
+        values["DCGM_URL"]["value"] = urls[node]
+    resolved = output / "dryrun-jobs-resolved.yaml"
+    resolved.write_text(yaml.safe_dump_all(jobs, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    _write_json(output / "dcgm-endpoints.json", {"schema_version": "pre6g.dcgm-endpoints/v1", "run_id": plan["run_id"], "urls_by_node": urls})
+    _invoke(_kubectl(context, "-n", namespace, "apply", "--dry-run=server", "-f", str(resolved)), cwd=output, log=log)
     _invoke(_kubectl(context, "-n", namespace, "apply", "--dry-run=server", "-f", str(output / "collector-pod.yaml")), cwd=output, log=log)
+    return resolved
+
+
+def _smoke_pods(plan: dict[str, Any], jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    nodes = [item["node"] for item in plan["candidates"]]
+    pods: list[dict[str, Any]] = []
+    for index, job in enumerate(jobs):
+        source_spec = job["spec"]["template"]["spec"]
+        node = source_spec["nodeSelector"]["kubernetes.io/hostname"]
+        source_container = source_spec["containers"][0]
+        values = _env(source_container)
+        if values["DCGM_URL"].get("value") == "DCGM_ENDPOINT_UNRESOLVED":
+            raise ValueError(f"{node}: DCGM endpoint must be resolved before smoke testing")
+        volumes = {volume["name"]: volume for volume in source_spec.get("volumes", [])}
+        if volumes.get("artifacts", {}).get("persistentVolumeClaim", {}).get("claimName") != plan["artifact_pvc"]:
+            raise ValueError(f"{node}: artifact PVC mount is missing")
+        if volumes.get("nsys", {}).get("hostPath", {}).get("path") != "/opt/nvidia/nsight-systems-cli/2026.4.1":
+            raise ValueError(f"{node}: Nsight hostPath differs from validated path")
+        peer = nodes[(index + 1) % len(nodes)]
+        pod = {
+            "apiVersion": "v1", "kind": "Pod",
+            "metadata": {
+                "name": _name(f"pre6g-smoke-{plan['run_id']}-{node}", "smoke Pod name"),
+                "namespace": plan["namespace"],
+                "labels": {"pre6g.io/smoke-id": plan["run_id"], "pre6g.io/candidate-node": node},
+            },
+            "spec": {
+                "restartPolicy": "Never", "activeDeadlineSeconds": 300,
+                "runtimeClassName": source_spec["runtimeClassName"],
+                "nodeSelector": {"kubernetes.io/hostname": node},
+                "containers": [{
+                    "name": "smoke", "image": source_container["image"],
+                    "imagePullPolicy": source_container.get("imagePullPolicy", "IfNotPresent"),
+                    "securityContext": source_container.get("securityContext", {}),
+                    "command": ["python3", "-c", SMOKE_PROGRAM],
+                    "env": [
+                        {"name": "RUN_ID", "value": plan["run_id"]},
+                        {"name": "NODE_NAME", "value": node},
+                        {"name": "PEER_NODE", "value": peer},
+                        *[{"name": name, "value": values[name]["value"]} for name in ("GPU_UUID", "NETDATA_URL", "DCGM_URL")],
+                    ],
+                    "resources": {
+                        "requests": {"cpu": "250m", "memory": "512Mi", "nvidia.com/gpu.shared": "1"},
+                        "limits": {"cpu": "1", "memory": "1Gi", "nvidia.com/gpu.shared": "1"},
+                    },
+                    "volumeMounts": [
+                        {"name": "artifacts", "mountPath": "/shared"},
+                        {"name": "nsys", "mountPath": "/opt/pre6g/nsight", "readOnly": True},
+                    ],
+                }],
+                "volumes": [volumes["artifacts"], volumes["nsys"]],
+            },
+        }
+        pods.append(pod)
+    return pods
+
+
+def _parse_smoke_log(log: str, *, run_id: str, node: str, gpu_uuid: str) -> dict[str, Any]:
+    markers = [line.removeprefix("PRE6G_SMOKE_RESULT=") for line in log.splitlines() if line.startswith("PRE6G_SMOKE_RESULT=")]
+    if len(markers) != 1:
+        raise ValueError(f"{node}: expected exactly one smoke result in Pod logs")
+    result = json.loads(markers[0])
+    if (result.get("schema_version") != "pre6g.cross-node-smoke-result/v1" or result.get("passed") is not True
+            or result.get("run_id") != run_id or result.get("node") != node or result.get("gpu_uuid") != gpu_uuid
+            or result.get("nfs_peer_read") is not True or result.get("github_access") is not True):
+        raise ValueError(f"{node}: smoke result identity or checks failed")
+    return result
+
+
+def _run_smoke(plan: dict[str, Any], jobs: list[dict[str, Any]], context: str, output: Path) -> None:
+    namespace = plan["namespace"]
+    log = output / "logs" / "kubectl.log"
+    pods = _smoke_pods(plan, jobs)
+    existing = json.loads(_invoke(_kubectl(context, "-n", namespace, "get", "pods", "-l", f"pre6g.io/smoke-id={plan['run_id']}", "-o", "json"), cwd=output, log=log))
+    if existing.get("items"):
+        raise RuntimeError("smoke Pods already exist for this run ID; use a new run ID")
+    manifest = output / "smoke-pods.yaml"
+    manifest.write_text(yaml.safe_dump_all(pods, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    _invoke(_kubectl(context, "-n", namespace, "apply", "--dry-run=server", "-f", str(manifest)), cwd=output, log=log)
+    created: list[dict[str, Any]] = []
+    cleanup_errors: list[str] = []
+    try:
+        for pod in pods:
+            name = pod["metadata"]["name"]
+            single = output / f"{name}.yaml"
+            single.write_text(yaml.safe_dump(pod, sort_keys=False, allow_unicode=True), encoding="utf-8")
+            _invoke(_kubectl(context, "-n", namespace, "create", "-f", str(single)), cwd=output, log=log)
+            created.append(pod)
+        expected = {pod["metadata"]["name"] for pod in pods}
+        deadline = time.monotonic() + 360
+        while time.monotonic() < deadline:
+            raw = _invoke(_kubectl(context, "-n", namespace, "get", "pods", "-l", f"pre6g.io/smoke-id={plan['run_id']}", "-o", "json"), cwd=output, log=log)
+            statuses = {row["metadata"]["name"]: row.get("status", {}) for row in json.loads(raw).get("items", [])}
+            if any(statuses.get(name, {}).get("phase") == "Failed" for name in expected):
+                raise RuntimeError("a smoke Pod failed; inspect the saved Pod logs")
+            if all(statuses.get(name, {}).get("phase") == "Succeeded" for name in expected):
+                break
+            time.sleep(5)
+        else:
+            raise RuntimeError("smoke Pods did not all succeed within six minutes")
+    finally:
+        for pod in created:
+            name = pod["metadata"]["name"]
+            result = subprocess.run(_kubectl(context, "-n", namespace, "logs", name, "-c", "smoke"), capture_output=True, text=True, encoding="utf-8", errors="replace", check=False)
+            path = output / "logs" / f"{name}.log"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(result.stdout + result.stderr, encoding="utf-8")
+        for pod in created:
+            name = pod["metadata"]["name"]
+            try:
+                _invoke(_kubectl(context, "-n", namespace, "delete", "pod", name, "--wait=true", "--timeout=60s"), cwd=output, log=log)
+            except RuntimeError as exc:
+                cleanup_errors.append(f"{name}: {exc}")
+        if cleanup_errors:
+            raise RuntimeError("smoke Pod cleanup failed: " + "; ".join(cleanup_errors))
+    results = []
+    for item in plan["candidates"]:
+        name = _name(f"pre6g-smoke-{plan['run_id']}-{item['node']}", "smoke Pod name")
+        saved = (output / "logs" / f"{name}.log").read_text(encoding="utf-8")
+        results.append(_parse_smoke_log(saved, run_id=plan["run_id"], node=item["node"], gpu_uuid=item["gpu_uuid"]))
+    _write_json(output / "smoke-result.json", {
+        "schema_version": "pre6g.cross-node-smoke-summary/v1", "run_id": plan["run_id"],
+        "passed": True, "results": results, "pvc_relative_marker_path": f"smoke/{plan['run_id']}",
+        "pods_deleted": True,
+    })
 
 
 def _wait_jobs(plan: dict[str, Any], context: str, output: Path, timeout_s: int) -> None:
@@ -437,23 +768,27 @@ def _predict(plan: dict[str, Any], output: Path) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Plan or execute parallel YOLO26 dry-run Jobs, collect ProfileResults through the shared PVC, and rank nodes on the master.")
+    parser = argparse.ArgumentParser(description="Plan, smoke-test, or execute parallel YOLO26 dry-run Jobs, then rank nodes on the master.")
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--worker-commit", required=True, help="Full pushed Git SHA checked out inside each worker Job")
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--preflight-only", action="store_true", help="Check live cluster prerequisites and render resolved Jobs without creating resources")
+    parser.add_argument("--smoke-only", action="store_true", help="Run short non-training Pods on candidate nodes, then delete them")
     parser.add_argument("--execute", action="store_true", help="Actually create all dry-run Jobs in Kubernetes")
-    parser.add_argument("--kube-context", help="Required with --execute; must equal current kube context")
+    parser.add_argument("--kube-context", help="Required with --preflight-only, --smoke-only, or --execute; must equal current kube context")
     parser.add_argument("--timeout-seconds", type=int, default=900)
     args = parser.parse_args()
-    if args.execute and not args.kube_context:
-        parser.error("--execute requires --kube-context")
+    if sum((args.preflight_only, args.smoke_only, args.execute)) > 1:
+        parser.error("--preflight-only, --smoke-only, and --execute are mutually exclusive")
+    if (args.execute or args.preflight_only or args.smoke_only) and not args.kube_context:
+        parser.error("--preflight-only, --smoke-only, and --execute require --kube-context")
     if args.timeout_seconds <= 0:
         parser.error("--timeout-seconds must be positive")
     output = args.output_dir.resolve()
     output.mkdir(parents=True, exist_ok=True)
     summary = output / "cross-node-run-summary.json"
-    if args.execute and summary.exists() and _json(summary).get("status") == "completed":
+    if summary.exists() and _json(summary).get("status") == "completed":
         parser.error("this run already completed; use a new run ID and output directory")
     started_at = datetime.now(timezone.utc).isoformat()
     phase = "prepare"
@@ -471,14 +806,24 @@ def main() -> int:
             _write_json(plan_path, plan)
             jobs_path.write_text(yaml.safe_dump_all(jobs, sort_keys=False, allow_unicode=True), encoding="utf-8")
             collector_path.write_text(yaml.safe_dump(collector, sort_keys=False, allow_unicode=True), encoding="utf-8")
-        if not args.execute:
+        if not args.execute and not args.preflight_only and not args.smoke_only:
             _write_json(summary, {"schema_version": "pre6g.cross-node-run-summary/v1", "status": "planned", "started_at": started_at, "run_id": args.run_id, "plan": str(plan_path)})
             print(f"[planned] {plan_path}; no Kubernetes Job was created")
             return 0
         phase = "preflight"
-        _preflight(plan, args.kube_context, output)
+        resolved_jobs_path = _preflight(plan, jobs, args.kube_context, output)
+        if args.preflight_only:
+            _write_json(summary, {"schema_version": "pre6g.cross-node-run-summary/v1", "status": "preflight_passed", "started_at": started_at, "finished_at": datetime.now(timezone.utc).isoformat(), "run_id": args.run_id, "resolved_jobs": str(resolved_jobs_path)})
+            print(f"[preflight passed] {resolved_jobs_path}; no Kubernetes resource was created")
+            return 0
+        if args.smoke_only:
+            phase = "smoke"
+            _run_smoke(plan, jobs, args.kube_context, output)
+            _write_json(summary, {"schema_version": "pre6g.cross-node-run-summary/v1", "status": "smoke_passed", "started_at": started_at, "finished_at": datetime.now(timezone.utc).isoformat(), "run_id": args.run_id, "smoke_result": str(output / "smoke-result.json")})
+            print(f"[smoke passed] {output / 'smoke-result.json'}; no YOLO training Job was created")
+            return 0
         phase = "submit"
-        _invoke(_kubectl(args.kube_context, "-n", plan["namespace"], "create", "-f", str(jobs_path)), cwd=output, log=output / "logs" / "kubectl.log")
+        _invoke(_kubectl(args.kube_context, "-n", plan["namespace"], "create", "-f", str(resolved_jobs_path)), cwd=output, log=output / "logs" / "kubectl.log")
         phase = "wait"
         _wait_jobs(plan, args.kube_context, output, args.timeout_seconds)
         phase = "collect"

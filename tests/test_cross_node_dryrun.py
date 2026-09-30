@@ -26,10 +26,19 @@ class CrossNodeDryrunTests(unittest.TestCase):
     def test_plan_creates_concurrent_node_jobs_without_deploying(self):
         plan, jobs, collector = DRYRUN.prepare(CONFIG, run_id="test-run-001", worker_commit=COMMIT)
         self.assertEqual(plan["source_total_work_units"], 960)
+        self.assertEqual(plan["experiment_stage"], "functional-validation")
+        self.assertEqual(plan["test_purpose"], "cross-node-pipeline-integration")
+        self.assertFalse(plan["production_result"])
         self.assertEqual(len(jobs), 2)
         self.assertEqual(collector["spec"]["volumes"][0]["persistentVolumeClaim"]["claimName"], "pre6g-artifacts")
+        self.assertEqual(plan["collector_node"], "icclz2")
+        self.assertEqual(collector["spec"]["nodeSelector"]["kubernetes.io/hostname"], "icclz2")
         self.assertEqual({job["spec"]["template"]["spec"]["nodeSelector"]["kubernetes.io/hostname"] for job in jobs}, {"iccl-s3-251230", "mirc516-20250605"})
         for job in jobs:
+            annotations = job["metadata"]["annotations"]
+            self.assertEqual(annotations["pre6g.io/experiment-stage"], "functional-validation")
+            self.assertEqual(annotations["pre6g.io/test-purpose"], "cross-node-pipeline-integration")
+            self.assertEqual(annotations["pre6g.io/production-result"], "false")
             container = job["spec"]["template"]["spec"]["containers"][0]
             self.assertIn(COMMIT, container["command"][2])
             self.assertIn("--duration=120", container["command"][2])
@@ -37,6 +46,11 @@ class CrossNodeDryrunTests(unittest.TestCase):
             env = {item["name"]: item["value"] for item in container["env"]}
             self.assertEqual(env["TASK_ID"], "test-run-001")
             self.assertEqual(job["metadata"]["labels"]["pre6g.io/candidate-node"], env["NODE_NAME"])
+            self.assertEqual(env["DCGM_URL"], "DCGM_ENDPOINT_UNRESOLVED")
+
+    def test_control_side_power_dependencies_load_before_cluster_execution(self):
+        plan, _, _ = DRYRUN.prepare(CONFIG, run_id="test-run-001", worker_commit=COMMIT)
+        DRYRUN._check_control_side_dependencies(plan)
 
     def test_wrong_bundle_binding_is_rejected(self):
         config = yaml.safe_load(CONFIG.read_text(encoding="utf-8"))
@@ -54,13 +68,13 @@ class CrossNodeDryrunTests(unittest.TestCase):
             DRYRUN.prepare(CONFIG, run_id="../unsafe", worker_commit=COMMIT)
 
     def test_cluster_preflight_needs_kubectl_and_never_submits_without_it(self):
-        plan, _, _ = DRYRUN.prepare(CONFIG, run_id="test-run-001", worker_commit=COMMIT)
+        plan, jobs, _ = DRYRUN.prepare(CONFIG, run_id="test-run-001", worker_commit=COMMIT)
         with tempfile.TemporaryDirectory() as raw, patch.object(DRYRUN.shutil, "which", return_value=None), patch.object(DRYRUN.subprocess, "run", return_value=SimpleNamespace(returncode=0)):
             with self.assertRaisesRegex(RuntimeError, "kubectl is unavailable"):
-                DRYRUN._preflight(plan, "missing-context", Path(raw))
+                DRYRUN._preflight(plan, jobs, "missing-context", Path(raw))
 
-    def test_preflight_checks_context_nodes_and_shared_pvc(self):
-        plan, _, _ = DRYRUN.prepare(CONFIG, run_id="test-run-001", worker_commit=COMMIT)
+    def test_preflight_checks_context_nfs_nodes_and_resolves_dcgm_per_node(self):
+        plan, jobs, _ = DRYRUN.prepare(CONFIG, run_id="test-run-001", worker_commit=COMMIT)
 
         def command_result(command, **_kwargs):
             return SimpleNamespace(returncode=0 if command[0] == "git" else 1)
@@ -68,15 +82,84 @@ class CrossNodeDryrunTests(unittest.TestCase):
         def kubectl_result(command, **_kwargs):
             if command[:3] == ["kubectl", "config", "current-context"]:
                 return "test-context\n"
+            if "pv" in command:
+                return json.dumps({"status": {"phase": "Bound"}, "spec": {"accessModes": ["ReadWriteMany"], "claimRef": {"namespace": "experiments", "name": "pre6g-artifacts"}, "nfs": {"server": "nfs.example", "path": "/srv/pre6g-artifacts"}}})
             if "pvc" in command:
-                return json.dumps({"status": {"phase": "Bound"}, "spec": {"accessModes": ["ReadWriteMany"]}})
+                return json.dumps({"status": {"phase": "Bound"}, "spec": {"accessModes": ["ReadWriteMany"], "volumeName": "pre6g-artifacts-nfs"}})
+            if "jobs" in command:
+                return json.dumps({"items": []})
             if "node" in command:
-                return json.dumps({"status": {"conditions": [{"type": "Ready", "status": "True"}], "allocatable": {"nvidia.com/gpu.shared": "1"}}})
+                return json.dumps({"status": {"conditions": [{"type": "Ready", "status": "True"}, {"type": "DiskPressure", "status": "False"}], "allocatable": {"nvidia.com/gpu.shared": "1"}}})
+            if "pods" in command:
+                return json.dumps({"items": [{"spec": {"nodeName": item["node"]}, "status": {"phase": "Running", "podIP": f"10.42.0.{index + 1}", "conditions": [{"type": "Ready", "status": "True"}]}} for index, item in enumerate(plan["candidates"])]})
             return ""
 
         with tempfile.TemporaryDirectory() as raw, patch.object(DRYRUN.shutil, "which", return_value="kubectl"), patch.object(DRYRUN.subprocess, "run", side_effect=command_result), patch.object(DRYRUN, "_invoke", side_effect=kubectl_result) as invoke:
-            DRYRUN._preflight(plan, "test-context", Path(raw))
-            self.assertEqual(invoke.call_count, 6)
+            resolved = DRYRUN._preflight(plan, jobs, "test-context", Path(raw))
+            self.assertEqual(invoke.call_count, 12)
+            rendered = list(yaml.safe_load_all(resolved.read_text(encoding="utf-8")))
+            self.assertEqual({job["spec"]["template"]["spec"]["nodeSelector"]["kubernetes.io/hostname"]: next(row["value"] for row in job["spec"]["template"]["spec"]["containers"][0]["env"] if row["name"] == "DCGM_URL") for job in rendered}, {"iccl-s3-251230": "http://10.42.0.1:9400", "mirc516-20250605": "http://10.42.0.2:9400"})
+
+    def test_dcgm_lookup_rejects_missing_node_exporter(self):
+        plan, _, _ = DRYRUN.prepare(CONFIG, run_id="test-run-001", worker_commit=COMMIT)
+        with tempfile.TemporaryDirectory() as raw, patch.object(DRYRUN, "_invoke", return_value=json.dumps({"items": []})):
+            with self.assertRaisesRegex(RuntimeError, "expected exactly one DCGM exporter Pod"):
+                DRYRUN._resolve_dcgm_urls(plan, "test-context", Path(raw))
+
+    def test_dcgm_lookup_rejects_not_ready_exporter(self):
+        plan, _, _ = DRYRUN.prepare(CONFIG, run_id="test-run-001", worker_commit=COMMIT)
+        pod = {"spec": {"nodeName": plan["candidates"][0]["node"]}, "status": {"phase": "Running", "podIP": "10.42.0.1", "conditions": [{"type": "Ready", "status": "False"}]}}
+        with tempfile.TemporaryDirectory() as raw, patch.object(DRYRUN, "_invoke", return_value=json.dumps({"items": [pod]})):
+            with self.assertRaisesRegex(RuntimeError, "not Running/Ready"):
+                DRYRUN._resolve_dcgm_urls(plan, "test-context", Path(raw))
+
+    def test_smoke_pods_use_two_bound_nodes_without_training(self):
+        compile(DRYRUN.SMOKE_PROGRAM, "<smoke-pod>", "exec")
+        plan, jobs, _ = DRYRUN.prepare(CONFIG, run_id="test-run-001", worker_commit=COMMIT)
+        for job in jobs:
+            env = {item["name"]: item for item in job["spec"]["template"]["spec"]["containers"][0]["env"]}
+            env["DCGM_URL"]["value"] = "http://10.42.0.1:9400"
+        pods = DRYRUN._smoke_pods(plan, jobs)
+        self.assertEqual(len(pods), 2)
+        for pod in pods:
+            spec = pod["spec"]
+            self.assertEqual(spec["runtimeClassName"], "nvidia")
+            self.assertEqual(spec["activeDeadlineSeconds"], 300)
+            self.assertEqual(spec["containers"][0]["resources"]["requests"]["nvidia.com/gpu.shared"], "1")
+            self.assertIn("nvidia-smi", spec["containers"][0]["command"][2])
+            self.assertNotIn("yolo detect train", spec["containers"][0]["command"][2])
+            self.assertEqual({volume["name"] for volume in spec["volumes"]}, {"artifacts", "nsys"})
+        self.assertEqual({pod["spec"]["nodeSelector"]["kubernetes.io/hostname"] for pod in pods}, {item["node"] for item in plan["candidates"]})
+
+    def test_smoke_pods_are_deleted_after_success(self):
+        plan, jobs, _ = DRYRUN.prepare(CONFIG, run_id="test-run-001", worker_commit=COMMIT)
+        for job in jobs:
+            env = {item["name"]: item for item in job["spec"]["template"]["spec"]["containers"][0]["env"]}
+            env["DCGM_URL"]["value"] = "http://10.42.0.1:9400"
+        pods = DRYRUN._smoke_pods(plan, jobs)
+        queries = 0
+
+        def fake_kubectl(command, **_kwargs):
+            nonlocal queries
+            if "get" in command and "pods" in command:
+                queries += 1
+                if queries == 1:
+                    return json.dumps({"items": []})
+                return json.dumps({"items": [{"metadata": {"name": pod["metadata"]["name"]}, "status": {"phase": "Succeeded"}} for pod in pods]})
+            return ""
+
+        def fake_logs(command, **_kwargs):
+            name = command[command.index("logs") + 1]
+            candidate = next(item for item in plan["candidates"] if item["node"] in name)
+            payload = {"schema_version": "pre6g.cross-node-smoke-result/v1", "passed": True, "run_id": plan["run_id"], "node": candidate["node"], "gpu_uuid": candidate["gpu_uuid"], "nfs_peer_read": True, "github_access": True}
+            return SimpleNamespace(stdout="PRE6G_SMOKE_RESULT=" + json.dumps(payload) + "\n", stderr="", returncode=0)
+
+        with tempfile.TemporaryDirectory() as raw, patch.object(DRYRUN, "_invoke", side_effect=fake_kubectl) as invoke, patch.object(DRYRUN.subprocess, "run", side_effect=fake_logs):
+            DRYRUN._run_smoke(plan, jobs, "test-context", Path(raw))
+            result = json.loads((Path(raw) / "smoke-result.json").read_text(encoding="utf-8"))
+            self.assertTrue(result["passed"])
+            self.assertEqual(len(result["results"]), 2)
+            self.assertEqual(sum("delete" in call.args[0] for call in invoke.call_args_list), 2)
 
     def test_target_wrapper_records_process_window(self):
         with tempfile.TemporaryDirectory() as raw:

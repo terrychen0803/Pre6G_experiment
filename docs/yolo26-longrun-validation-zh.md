@@ -1,5 +1,7 @@
 # YOLO26 長跑跨節點驗證（研究流程）
 
+> **狀態提醒：**目前 `examples/yolo26/validation-source-job.yaml` 已明確歸類為 functional/integration fixture（30 epochs / 960 iterations），不是正式 30–50 分鐘 user workload。本文的 validation planner 可作為後續 ground-truth 長跑工具，但在「原始 full workload 與 120 秒 dry-run workload 分離」完成前，不應把目前 fixture 的 prediction 當成 formal runtime accuracy 結果。
+
 本流程把已完成的 dry-run 預測結果凍結、選出預測節點，再在**所有候選節點**執行同一份完整 YOLO26 訓練，最後比較實際時間與外部 PDU 的整機用電。它用於驗證 runtime / power 排序，不是正式自動調度器，也不能以合成圖像宣稱物件偵測 mAP 準確度。
 
 ## 已有與新增的邊界
@@ -27,7 +29,7 @@ python scripts/run_experiment_pipeline.py \
 
 `validation-id` 請每次更換，且使用 Kubernetes DNS label 允許的小寫字母、數字與連字號；同一次的 `output-dir` 也應唯一。這份示範來源 Job 沿用已跑過的 `ultralytics/ultralytics:8.4.104`、`yolo26n.yaml`、512 張固定生成的 320×320 合成訓練圖、64 張驗證圖、batch 16、AMP 關閉、單 GPU、`nvidia.com/gpu.shared: 1`。init container 每個節點生成同一資料集，正式 trainer 不掛 Nsight、不抓 1 秒 telemetry、不會因 early stopping 停止（`patience=0`）。映像目前是版本 tag，不是 digest；正式比較前應先解析並固定成同一不可變 digest，確認兩節點 image architecture 與 pull 權限。若要改真實資料集，請替換來源 Job 的 data 路徑與對應 PVC，更新樣本數註解，並重新 dry-run；不可把目前模型預測直接套到不同資料、解析度或 batch。
 
-本次專案證據輸入為 960 iterations，選中 RTX4090（`iccl-s3-251230`）。目標 40 分鐘時，規劃程式算出 **1185 epochs、37920 iterations**：RTX4090 steady 約 40.0 分鐘，RTX5090 steady 約 81.4 分鐘，兩者還不含啟動、驗證等時間。因此「兩個節點都跑 30–50 分鐘」與「兩者用完全相同工作量」在現有預測下無法同時滿足；本流程選擇後者以保持公平比較。這是舊 profile 外推，並非時長保證；若長跑成本不能接受，請先用 3–5 分鐘 pilot 更新每節點估計。
+先前文件曾以舊版 prediction 寫死 1185 epochs／37920 iterations 與 40.0／81.4 分鐘的範例；這些數值已不適用目前模型，已移除以避免和最新 functional run 混淆。`yolo26-dryrun-002` 的最新 functional prediction 約為 RTX4090 46.1338 ms/iteration、RTX5090 47.2247 ms/iteration；對目前 960 iterations fixture 只代表約 44–45 秒 steady compute。正式 30–50 分鐘 workload 必須在下一階段固定其完整工作量，再以相同 work units 做 dry-run prediction 與 full-run ground truth 比較，不應從這個小型 fixture 的 30 epochs 結果直接宣稱正式 runtime。
 
 產物：`workload-discovery.json`、`provisional-ranking.json`、`validation-plan.json`、`validation-jobs.yaml`、`deploy-commands.txt`、`run-summary.json` 和 `logs/`。`validation-plan.json` 明載 frozen selection、每節點預測、資料及功率模型限制。
 
