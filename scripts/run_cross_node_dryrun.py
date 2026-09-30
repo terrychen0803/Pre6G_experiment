@@ -164,6 +164,39 @@ def _env(container: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return values
 
 
+def _check_control_side_dependencies(plan: dict[str, Any]) -> None:
+    """Fail before GPU profiling when master-side prediction cannot run."""
+    try:
+        import numpy  # noqa: F401
+        import onnxruntime as ort
+    except (ImportError, OSError) as exc:
+        raise RuntimeError(
+            "control-side power prediction dependencies are unavailable; "
+            "install requirements-power-model.txt before preflight/execute"
+        ) from exc
+
+    providers = set(ort.get_available_providers())
+    if "CPUExecutionProvider" not in providers:
+        raise RuntimeError(
+            "ONNX Runtime is installed but CPUExecutionProvider is unavailable on the control side"
+        )
+
+    for item in plan["candidates"]:
+        bundle = Path(item["power_bundle"])
+        scaler = _json(bundle / "scaler.json")
+        if not scaler:
+            raise RuntimeError(f"{item['node']}: power scaler.json is empty")
+        try:
+            ort.InferenceSession(
+                str(bundle / "model.onnx"),
+                providers=["CPUExecutionProvider"],
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                f"{item['node']}: power model cannot be loaded by ONNX Runtime on the control side: {exc}"
+            ) from exc
+
+
 def prepare(config_path: Path, *, run_id: str, worker_commit: str) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any]]:
     _name(run_id, "run_id")
     if not COMMIT.fullmatch(worker_commit):
@@ -184,6 +217,13 @@ def prepare(config_path: Path, *, run_id: str, worker_commit: str) -> tuple[dict
     source = yaml.safe_load(source_job.read_text(encoding="utf-8"))
     if source.get("apiVersion") != "batch/v1" or source.get("kind") != "Job":
         raise ValueError("source_job must be batch/v1 Job")
+    source_annotations = source.get("metadata", {}).get("annotations", {})
+    if (source_annotations.get("pre6g.io/experiment-stage") != "functional-validation"
+            or source_annotations.get("pre6g.io/test-purpose") != "cross-node-pipeline-integration"
+            or source_annotations.get("pre6g.io/production-result") != "false"):
+        raise ValueError(
+            "source_job must be explicitly marked as the functional-validation integration fixture"
+        )
     source_work = estimate_work(source)
     if source_work.adapter != "yolo" or source_work.work_unit != "training_iteration" or source_work.total_work_units is None:
         raise ValueError("source_job must expose a known YOLO training iteration count")
@@ -215,6 +255,11 @@ def prepare(config_path: Path, *, run_id: str, worker_commit: str) -> tuple[dict
         job = yaml.safe_load(template_path.read_text(encoding="utf-8"))
         if job.get("apiVersion") != "batch/v1" or job.get("kind") != "Job":
             raise ValueError(f"{template_path}: expected batch/v1 Job")
+        annotations = job.get("metadata", {}).get("annotations", {})
+        if (annotations.get("pre6g.io/experiment-stage") != "functional-validation"
+                or annotations.get("pre6g.io/test-purpose") != "cross-node-pipeline-integration"
+                or annotations.get("pre6g.io/production-result") != "false"):
+            raise ValueError(f"{template_path}: profile template is not explicitly marked functional-validation")
         if job["metadata"].get("namespace") != namespace:
             raise ValueError(f"{node}: profile template namespace differs from config")
         spec = job["spec"]["template"]["spec"]
@@ -314,6 +359,9 @@ def prepare(config_path: Path, *, run_id: str, worker_commit: str) -> tuple[dict
         "source_job": str(source_job),
         "source_job_sha256": _digest(source_job),
         "source_total_work_units": source_work.total_work_units,
+        "experiment_stage": "functional-validation",
+        "test_purpose": "cross-node-pipeline-integration",
+        "production_result": False,
         "config_sha256": _digest(config_path),
         "artifact_pvc": pvc,
         "dcgm_exporter": {"namespace": exporter_namespace, "label_selector": exporter_selector, "port": exporter_port},
@@ -374,6 +422,7 @@ def _preflight(plan: dict[str, Any], jobs: list[dict[str, Any]], context: str, o
     )
     if worker_check.returncode:
         raise RuntimeError("worker_commit does not contain the required application-window wrapper; use a pushed commit containing this feature")
+    _check_control_side_dependencies(plan)
     if shutil.which("kubectl") is None:
         raise RuntimeError("kubectl is unavailable; plan files were generated, but no Job was submitted")
     log = output / "logs" / "kubectl.log"
