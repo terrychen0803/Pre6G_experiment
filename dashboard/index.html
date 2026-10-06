@@ -111,12 +111,7 @@
     }
     .ok { color: var(--green); background: var(--green-soft); }
     .warn { color: var(--amber); background: var(--amber-soft); }
-    .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin: 24px 0; }
     .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
-    .metric { padding: 18px; }
-    .metric .label { color: var(--muted); font-size: 13px; }
-    .metric .value { margin-top: 7px; font-size: 28px; font-weight: 750; letter-spacing: -.035em; }
-    .metric .detail { margin-top: 4px; color: var(--muted); font-size: 12px; }
     .section { margin-top: 28px; }
     .section-head { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 12px; }
     h2 { margin: 0; font-size: 18px; letter-spacing: -.015em; }
@@ -168,14 +163,13 @@
       .nav-label { display: none; }
       .nav { display: flex; overflow-x: auto; }
       .nav button, .nav a { width: auto; white-space: nowrap; }
-      .metric-grid { grid-template-columns: repeat(2, 1fr); }
-      .two-col { grid-template-columns: 1fr; }
+        .two-col { grid-template-columns: 1fr; }
     }
     @media (max-width: 680px) {
       .snapshot { display: none; }
       .hero { display: block; }
       .hero .badge { margin-top: 14px; }
-      .metric-grid, .evidence-grid { grid-template-columns: 1fr; }
+      .evidence-grid { grid-template-columns: 1fr; }
       .flow { grid-template-columns: repeat(6, 150px); }
       main { padding-top: 24px; }
     }
@@ -206,7 +200,7 @@
         <section data-view="overview" class="active">
           <div class="hero">
             <div>
-              <h1>從一份 Job，產生可比較的節點證據</h1>
+              <h1>Pre6G實驗結果</h1>
               <p>平台保留使用者原始 workload，短暫在候選 GPU 節點執行 marker-free profiling，再以 runtime、power 與遙測品質 gate 決定是否能自動配置。</p>
             </div>
             <span class="badge warn">● MVP · 部分 gate 尚未完成</span>
@@ -220,14 +214,6 @@
             </tbody></table></div>
             <p class="muted">預測能耗低 62.31%；尚待 production ground-truth 驗證。兩個 power bundle 皆為 validation_required，研究選點未改動正式品質 gate。</p>
           </section>
-          <section class="section"><h2>早期 RTX5090 smoke 證據</h2></section>
-          <div class="metric-grid">
-            <article class="card metric"><div class="label">RTX5090 Profile Job</div><div class="value">118</div><div class="detail">完整 execution cycles</div></article>
-            <article class="card metric"><div class="label">Detector confidence</div><div class="value">0.730</div><div class="detail">two-window stability</div></article>
-            <article class="card metric"><div class="label">預測 steady runtime</div><div class="value">14.80 s</div><div class="detail">128 training iterations</div></article>
-            <article class="card metric"><div class="label">Telemetry alignment</div><div class="value">100%</div><div class="detail">20 / 20 samples</div></article>
-          </div>
-
           <section class="section">
             <div class="section-head"><h2>平台目標使用流程</h2><span class="muted">部分步驟仍需人工操作</span></div>
             <div class="card flow" aria-label="Pre6G 六階段流程">
