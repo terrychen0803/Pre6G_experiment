@@ -130,6 +130,8 @@ def evaluate(plan: dict[str, Any], pods: dict[str, Any], pdu_paths: dict[str, Pa
             )
         rows.append(row)
     complete = all(row.get("succeeded") and "pdu" in row for row in rows)
+    eta_errors = [abs(row["full_job_runtime_error_percent"]) for row in rows
+                  if row["full_job_runtime_error_percent"] is not None]
     actual_winner = min(rows, key=lambda row: row["pdu"]["gross_energy_wh"])["node"] if complete else None
     return {
         "schema_version": "pre6g.validation-result/v1",
@@ -138,6 +140,10 @@ def evaluate(plan: dict[str, Any], pods: dict[str, Any], pdu_paths: dict[str, Pa
         "actual_lowest_gross_energy_node": actual_winner,
         "selection_match": actual_winner == plan["selected_node"] if complete else None,
         "evaluation_complete": complete,
+        "full_job_eta_ready_nodes": len(eta_errors),
+        "full_job_runtime_mape_percent": (
+            sum(eta_errors) / len(eta_errors) if len(eta_errors) == len(rows) else None
+        ),
         "nodes": rows,
         "limitations": [
             "PDU values are treated as five-minute interval-average whole-node watts; boundary intervals are overlap-weighted.",

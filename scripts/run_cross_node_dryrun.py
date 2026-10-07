@@ -38,6 +38,10 @@ ARTIFACTS = (
     "telemetry/alignment-quality.json",
     "telemetry/application-window.json",
 )
+LONG_DETECTOR_ARTIFACTS = (
+    "detector-v2/trajectory.json",
+    "detector-v2/windows.csv",
+)
 SMOKE_PROGRAM = r'''
 import json
 import os
@@ -210,6 +214,9 @@ def prepare(config_path: Path, *, run_id: str, worker_commit: str) -> tuple[dict
     experiment_stage = str(config.get("experiment_stage", "functional-validation"))
     test_purpose = str(config.get("test_purpose", "cross-node-pipeline-integration"))
     production_result = config.get("production_result", False)
+    long_detector_profile = config.get("long_detector_profile")
+    if long_detector_profile not in (None, "yolo-v2-long"):
+        raise ValueError("unsupported long_detector_profile")
     if experiment_stage not in {"functional-validation", "formal-experiment"}:
         raise ValueError("experiment_stage must be functional-validation or formal-experiment")
     if not test_purpose:
@@ -340,6 +347,8 @@ def prepare(config_path: Path, *, run_id: str, worker_commit: str) -> tuple[dict
         if requests.get("nvidia.com/gpu.shared") != "1" or limits.get("nvidia.com/gpu.shared") != "1":
             raise ValueError(f"{node}: profile template must request one validated shared GPU")
         original = _command_text(job)
+        if long_detector_profile and "scripts/evaluate_long_trace_periods.py" not in original:
+            raise ValueError(f"{node}: profile template lacks {long_detector_profile} diagnostic")
         if len(CHECKOUT.findall(original)) != 1:
             raise ValueError(f"{node}: template must contain one pinned git checkout SHA")
         if "SHARED=/shared/results/${TASK_ID}/${NODE_NAME}" not in original:
@@ -436,6 +445,7 @@ def prepare(config_path: Path, *, run_id: str, worker_commit: str) -> tuple[dict
         "experiment_stage": experiment_stage,
         "test_purpose": test_purpose,
         "production_result": False,
+        "long_detector_profile": long_detector_profile,
         "full_workload_fixed": source_annotations.get("pre6g.io/full-workload-fixed") == "true",
         "config_sha256": _digest(config_path),
         "artifact_pvc": pvc,
@@ -720,7 +730,8 @@ def _collect(plan: dict[str, Any], context: str, output: Path) -> None:
         _invoke(_kubectl(context, "-n", namespace, "wait", f"pod/{collector}", "--for=condition=Ready", "--timeout=5m"), cwd=output, log=log)
         for item in plan["candidates"]:
             target = output / "artifacts" / item["node"]
-            for relative in ARTIFACTS:
+            artifacts = ARTIFACTS + (LONG_DETECTOR_ARTIFACTS if plan.get("long_detector_profile") else ())
+            for relative in artifacts:
                 destination = target / relative
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 source = f"{collector}:/shared/results/{plan['run_id']}/{item['node']}/{relative}"
@@ -822,9 +833,16 @@ def _predict(plan: dict[str, Any], output: Path) -> None:
         watts = float(representative)
         if not all(math.isfinite(v) and v > 0 for v in (runtime_ms, watts)):
             raise ValueError(f"{node}: runtime or power prediction is not positive and finite")
+        long_diagnostic = None
+        if plan.get("long_detector_profile"):
+            long_diagnostic = _json(artifacts / "detector-v2" / "trajectory.json")
+            if (long_diagnostic.get("detector_profile") != plan["long_detector_profile"]
+                    or long_diagnostic.get("used_as_runtime_model_input") is not False):
+                raise ValueError(f"{node}: long detector diagnostic identity/policy mismatch")
         candidates.append({
             "node": node, "device_id": item["device_id"],
             "runtime": {"model_id": runtime["model_id"], "predicted_runtime_ms_per_work_unit": runtime_ms},
+            "long_detector_diagnostic": long_diagnostic,
             "power": {
                 "model_id": power["model_id"], "predicted_node_total_steady_power_w": watts,
                 "status": power["status"], "range_exceeded": power.get("range_exceeded", False),

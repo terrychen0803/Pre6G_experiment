@@ -46,6 +46,8 @@ class ValidationRunTests(unittest.TestCase):
         } for row in plan["jobs"]]}
         result = EVALUATOR.evaluate(plan, pods, {}, timestamp_column="timestamp", power_column="power_w", interval_position="end")
         self.assertTrue(all(row["full_job_runtime_error_percent"] == 0 for row in result["nodes"]))
+        self.assertEqual(result["full_job_eta_ready_nodes"], 2)
+        self.assertEqual(result["full_job_runtime_mape_percent"], 0)
 
     def setUp(self):
         self.job = yaml.safe_load((ROOT / "examples/yolo26/validation-source-job.yaml").read_text(encoding="utf-8"))

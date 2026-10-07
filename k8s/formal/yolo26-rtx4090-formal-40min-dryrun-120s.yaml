@@ -266,6 +266,14 @@ spec:
                 --detector-profile yolo-v1
 
               echo
+              echo "===== NEW yolo-v2-long DETECTOR (DIAGNOSTIC) ====="
+
+              PYTHONPATH=src python3 \
+                scripts/evaluate_long_trace_periods.py \
+                --sqlite "$LOCAL/profile.sqlite" \
+                --output-dir "$LOCAL/detector-v2"
+
+              echo
               echo "===== RUNTIME FEATURES ====="
 
               PYTHONPATH=src python3 \
@@ -300,6 +308,10 @@ spec:
               cp \
                 "$LOCAL/detector/marker-free-discovery.json" \
                 "$SHARED/marker-free-discovery.json"
+
+              mkdir -p "$SHARED/detector-v2"
+              cp "$LOCAL/detector-v2/trajectory.json" "$SHARED/detector-v2/trajectory.json"
+              cp "$LOCAL/detector-v2/windows.csv" "$SHARED/detector-v2/windows.csv"
 
               cp \
                 "$LOCAL/runtime-features.json" \

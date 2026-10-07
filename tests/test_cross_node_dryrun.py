@@ -75,11 +75,13 @@ class CrossNodeDryrunTests(unittest.TestCase):
         self.assertTrue(plan["full_workload_fixed"])
         self.assertEqual(plan["source_epochs"], 1639)
         self.assertEqual(plan["source_total_work_units"], 52448)
+        self.assertEqual(plan["long_detector_profile"], "yolo-v2-long")
         for job in jobs:
             self.assertEqual(job["metadata"]["annotations"]["pre6g.io/experiment-stage"], "formal-experiment")
             command = job["spec"]["template"]["spec"]["containers"][0]["command"][2]
             self.assertIn("epochs=1639", command)
             self.assertIn("--duration=120", command)
+            self.assertIn("scripts/evaluate_long_trace_periods.py", command)
             self.assertIn("val=False", command)
             self.assertIn("save=False", command)
             self.assertIn("patience=0", command)
@@ -269,6 +271,7 @@ class CrossNodeDryrunTests(unittest.TestCase):
 
     def test_master_assembles_and_ranks_collected_predictions(self):
         plan, _, _ = DRYRUN.prepare(CONFIG, run_id="test-run-001", worker_commit=COMMIT)
+        plan["long_detector_profile"] = "yolo-v2-long"
         real_invoke = DRYRUN._invoke
 
         def fake_inference(command, **kwargs):
@@ -312,6 +315,12 @@ class CrossNodeDryrunTests(unittest.TestCase):
                 profile = {"schema_version": "pre6g.profile-result/v1", "task_id": plan["run_id"], "node": node, "device_id": item["device_id"], "status": "ready-for-control-side-inference", "detector": {"complete_cycles": 5}, "runtime_features": features}
                 (artifacts / "runtime-features.json").write_text(json.dumps(features), encoding="utf-8")
                 (artifacts / "profile-result.json").write_text(json.dumps(profile), encoding="utf-8")
+                detector_v2 = artifacts / "detector-v2"
+                detector_v2.mkdir()
+                (detector_v2 / "trajectory.json").write_text(json.dumps({
+                    "detector_profile": "yolo-v2-long", "status": "stable_observed",
+                    "used_as_runtime_model_input": False,
+                }), encoding="utf-8")
                 (telemetry / "alignment-quality.json").write_text(json.dumps({"pass": True}), encoding="utf-8")
                 start = 1_000_000_000_000
                 (telemetry / "application-window.json").write_text(json.dumps({"schema_version": "pre6g.application-window/v1", "command": ["yolo", "detect", "train"], "started_at_unix_ns": start, "finished_at_unix_ns": start + 11_000_000_000}), encoding="utf-8")
@@ -322,6 +331,7 @@ class CrossNodeDryrunTests(unittest.TestCase):
             ranking = json.loads((output / "provisional-ranking.json").read_text(encoding="utf-8"))
             self.assertEqual(len(ranking_input["candidates"]), 2)
             self.assertEqual(ranking["selected_node"], plan["candidates"][0]["node"])
+            self.assertEqual(ranking["ranked"][0]["long_detector_diagnostic"]["detector_profile"], "yolo-v2-long")
             self.assertEqual(ranking["ranked"][0]["total_job_runtime_status"], "ready")
             self.assertGreater(ranking["ranked"][0]["predicted_total_job_runtime_s"], 0)
 

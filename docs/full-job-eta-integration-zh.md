@@ -56,3 +56,5 @@ python scripts/provisional_rank_nodes.py --input ranking-input.json --output pro
 當 `--mode validation` 使用**固定完整工作量**時，`validation-plan.json` 會保留 ready ETA；如果 planner 重新調整 epochs，會將 ETA 標為 incomplete，避免沿用原工作量的預測。`--mode validation-evaluate` 對成功完成的 trainer container 另外輸出 `full_job_runtime_error_percent`；原有 `runtime_proxy_error_percent` 仍只表示穩態估計對完整 trainer 的 proxy 差異。
 
 目前 repository 尚無每個伺服器節點自然完成的訓練 phase calibration，因此這個介面已可用，但**現有 formal 資料無法得出經驗證的完整 ETA**。需先在目標 4090/5090 收集完整 Job 的各階段時間，並用時間上更早的 run 校準、之後的 run 評估。先前本機 RTX 3060 的單組 YOLO pilot 不能直接套用至伺服器或 shared GPU。
+
+本機同一份凍結預測後續已增加兩個獨立完整 Job；三筆目標的分階段平均 APE 為 7.95%，詳見 [RTX 3060 小型驗證](evidence/full-job-eta-local-pilot-20261007.md)。這使用 callback 穩態時間，不能代表新版 detector 的端到端誤差。`yolo-v2-long` 目前只產生平行診斷，與舊模型的關係見 [新版 detector 說明](yolo-v2-long-detector.md)。

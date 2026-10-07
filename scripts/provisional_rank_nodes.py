@@ -62,6 +62,7 @@ def rank_candidates(payload: dict[str, Any]) -> dict[str, Any]:
                 "power_status": power.get("status"),
                 "power_range_exceeded": bool(power.get("range_exceeded", False)),
                 "power_range_detail": power.get("range_detail"),
+                "long_detector_diagnostic": candidate.get("long_detector_diagnostic"),
             }
         )
 

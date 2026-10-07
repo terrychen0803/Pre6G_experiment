@@ -3,6 +3,7 @@ schema_version: pre6g.cross-node-dryrun-config/v1
 experiment_stage: formal-experiment
 test_purpose: dryrun-full-workload-prediction
 production_result: false
+long_detector_profile: yolo-v2-long # New 120–180s trajectory diagnostic; frozen runtime models stay on yolo-v1.
 namespace: experiments
 source_job: examples/yolo26/formal-40min-source-job.yaml
 artifact_pvc: pre6g-artifacts

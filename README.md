@@ -8,6 +8,8 @@ YOLO26 跨節點 30–50 分鐘訓練驗證的準備、部署命令與 PDU 五�
 
 完整訓練時間的可選分階段 ETA 介面、校準輸入與驗證邊界見 [分階段估時接入](docs/full-job-eta-integration-zh.md)。
 
+120–180 秒 trace 的新版 `yolo-v2-long` detector 已加入正式長工作量 dry-run 的平行診斷；既有 runtime model 仍使用 `yolo-v1` 輸入。版本、產物及模型相容性見 [新版 detector 說明](docs/yolo-v2-long-detector.md)。
+
 排名前的「同時部署所有候選節點 dry-run → 回收產物 → master 預測與排名」已有明確執行的 YOLO26 協調模式；預設只產生計畫，詳見 [跨節點 dry-run 使用說明](docs/cross-node-dryrun-zh.md)。
 
 在 k3s 上執行「Generic workload intake → marker-free dry-run profiling → runtime / power prediction → energy-aware placement → production ground truth」的整合與驗證平台。
