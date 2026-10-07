@@ -26,6 +26,27 @@ RANKER = script("provisional_rank_nodes")
 
 
 class ValidationRunTests(unittest.TestCase):
+    def test_fixed_plan_carries_full_eta_and_evaluator_scores_completed_trainer(self):
+        job = yaml.safe_load((ROOT / "examples/yolo26/formal-40min-source-job.yaml").read_text(encoding="utf-8"))
+        ranking = json.loads(json.dumps(self.ranking))
+        ranking["total_work_units"] = 52448
+        for row in ranking["ranked"]:
+            row["predicted_total_job_runtime_s"] = 600.0
+            row["total_job_runtime_status"] = "ready"
+            row["full_job_eta"] = {"status": "ready", "phase_counts": {"validation_s": 0, "checkpoint_s": 0}}
+        discovery = {"adapter": "yolo", "work": {"unit": "training_iteration", "steps_per_epoch": 32, "total_units": 52448}}
+        plan, _ = PLANNER.plan(job, ranking, discovery, validation_id="formal-eta-001", target_minutes=40)
+        self.assertTrue(all(row["predicted_total_job_runtime_s"] == 600 for row in plan["jobs"]))
+        pods = {"items": [{
+            "metadata": {"name": f"pod-{row['node']}", "labels": {
+                "pre6g.io/validation-id": "formal-eta-001",
+                "pre6g.io/candidate-node": row["node"], "job-name": row["job_name"]}},
+            "status": {"phase": "Succeeded", "containerStatuses": [{"name": "trainer", "state": {
+                "terminated": {"startedAt": "2026-10-01T00:00:00Z", "finishedAt": "2026-10-01T00:10:00Z", "exitCode": 0}}}]},
+        } for row in plan["jobs"]]}
+        result = EVALUATOR.evaluate(plan, pods, {}, timestamp_column="timestamp", power_column="power_w", interval_position="end")
+        self.assertTrue(all(row["full_job_runtime_error_percent"] == 0 for row in result["nodes"]))
+
     def setUp(self):
         self.job = yaml.safe_load((ROOT / "examples/yolo26/validation-source-job.yaml").read_text(encoding="utf-8"))
         ranking_input = json.loads((ROOT / "docs/evidence/formal-cross-node-ranking-input.json").read_text(encoding="utf-8"))

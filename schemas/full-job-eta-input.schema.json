@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Optional Pre6G full trainer ETA input",
+  "type": "object",
+  "required": ["schema_version", "work_unit", "plan", "nodes"],
+  "properties": {
+    "schema_version": {"const": "pre6g.full-job-eta-input/v1"},
+    "work_unit": {"const": "training_iteration"},
+    "plan": {
+      "type": "object",
+      "required": ["total_work_units"],
+      "properties": {
+        "total_work_units": {"type": "integer", "minimum": 1},
+        "warmup_work_units": {"type": "integer", "minimum": 0},
+        "validation_runs": {"type": "integer", "minimum": 0},
+        "checkpoint_writes": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "nodes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "dry_run": {"$ref": "#/$defs/durations"},
+          "calibration": {"$ref": "#/$defs/durations"},
+          "calibration_source_runs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["run_id", "completed_naturally"],
+              "properties": {
+                "run_id": {"type": "string", "minLength": 1},
+                "completed_naturally": {"const": true}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "durations": {
+      "type": "object",
+      "properties": {
+        "startup_s": {"type": "number", "minimum": 0},
+        "warmup_work_unit_s": {"type": "number", "minimum": 0},
+        "validation_s": {"type": "number", "minimum": 0},
+        "checkpoint_s": {"type": "number", "minimum": 0},
+        "finalization_s": {"type": "number", "minimum": 0}
+      },
+      "additionalProperties": false
+    }
+  }
+}

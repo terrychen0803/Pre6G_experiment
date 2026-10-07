@@ -234,6 +234,13 @@ def prepare(config_path: Path, *, run_id: str, worker_commit: str) -> tuple[dict
     source_work = estimate_work(source)
     if source_work.adapter != "yolo" or source_work.work_unit != "training_iteration" or source_work.total_work_units is None:
         raise ValueError("source_job must expose a known YOLO training iteration count")
+    eta_path = _path(str(config["full_job_eta_input"])) if config.get("full_job_eta_input") else None
+    if eta_path is not None:
+        eta_input = _json(eta_path)
+        if eta_input.get("schema_version") != "pre6g.full-job-eta-input/v1":
+            raise ValueError("unsupported full_job_eta_input schema")
+        if (eta_input.get("plan") or {}).get("total_work_units") != source_work.total_work_units:
+            raise ValueError("full_job_eta_input total_work_units differs from source Job")
     parameters = source_work.parameters
     expected_training = {
         "model": "yolo26n.yaml", "batch_size": 16,
@@ -422,6 +429,8 @@ def prepare(config_path: Path, *, run_id: str, worker_commit: str) -> tuple[dict
         "worker_commit": worker_commit,
         "source_job": str(source_job),
         "source_job_sha256": _digest(source_job),
+        "full_job_eta_input": str(eta_path) if eta_path else None,
+        "full_job_eta_input_sha256": _digest(eta_path) if eta_path else None,
         "source_total_work_units": source_work.total_work_units,
         "source_epochs": epochs,
         "experiment_stage": experiment_stage,
@@ -828,6 +837,11 @@ def _predict(plan: dict[str, Any], output: Path) -> None:
         "work_unit": work["unit"], "total_work_units": work["total_units"],
         "energy_objective": "steady-gross-node-energy", "candidates": candidates,
     }
+    if plan.get("full_job_eta_input"):
+        eta_path = Path(plan["full_job_eta_input"])
+        if _digest(eta_path) != plan["full_job_eta_input_sha256"]:
+            raise ValueError("full_job_eta_input changed after cross-node plan was frozen")
+        ranking_input["full_job_eta"] = _json(eta_path)
     ranking_path = output / "ranking-input.json"
     _write_json(ranking_path, ranking_input)
     _invoke([sys.executable, str(ROOT / "scripts" / "provisional_rank_nodes.py"), "--input", str(ranking_path), "--output", str(output / "provisional-ranking.json")], cwd=ROOT, log=output / "logs" / "prediction.log", env=_environment())

@@ -135,6 +135,21 @@ def plan(job: dict[str, Any], ranking: dict[str, Any], discovery: dict[str, Any]
             "node": node,
             "job_name": name,
             "predicted_steady_runtime_s": duration_s,
+            "predicted_total_job_runtime_s": (
+                row.get("predicted_total_job_runtime_s")
+                if fixed_full_workload and total_units == ranking["total_work_units"]
+                else None
+            ),
+            "total_job_runtime_status": (
+                row.get("total_job_runtime_status", "incomplete")
+                if fixed_full_workload and total_units == ranking["total_work_units"]
+                else "incomplete"
+            ),
+            "full_job_eta": (
+                row.get("full_job_eta")
+                if fixed_full_workload and total_units == ranking["total_work_units"]
+                else None
+            ),
             "predicted_steady_gross_energy_wh": power_w * duration_s / 3600,
             "predicted_steady_power_w": power_w,
             "power_status": row.get("power_status"),
@@ -161,7 +176,7 @@ def plan(job: dict[str, Any], ranking: dict[str, Any], discovery: dict[str, Any]
             ("Formal workload is fixed before evaluation; target_minutes does not rescale epochs."
              if fixed_full_workload else
              "Validation planner sized epochs from target_minutes and the selected-node prediction."),
-            "Duration uses steady per-iteration estimates; setup, validation and checkpoint overhead are excluded.",
+            "Steady duration excludes non-steady phases; complete ETA is reported separately only when a fixed workload has valid phase calibration.",
             "The same workload can exceed 50 minutes on slower nodes.",
             "All-node training uses the same dataset and hyperparameters; only node pinning and Job identity differ.",
             "Whole-job PDU energy is not directly identical to predicted steady-window energy.",

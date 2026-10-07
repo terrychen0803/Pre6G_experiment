@@ -24,6 +24,25 @@ COMMIT = "767756535d215293f7c6d96b65ae0c07134248c0"
 
 
 class CrossNodeDryrunTests(unittest.TestCase):
+    def test_formal_plan_freezes_optional_eta_input_and_rejects_work_mismatch(self):
+        config = yaml.safe_load(FORMAL_CONFIG.read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as raw:
+            eta_path = Path(raw) / "eta.json"
+            eta = {"schema_version": "pre6g.full-job-eta-input/v1", "work_unit": "training_iteration",
+                   "plan": {"total_work_units": 52448, "warmup_work_units": 4,
+                            "validation_runs": 0, "checkpoint_writes": 0}, "nodes": {}}
+            eta_path.write_text(json.dumps(eta), encoding="utf-8")
+            config["full_job_eta_input"] = str(eta_path)
+            config_path = Path(raw) / "config.yaml"
+            config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
+            plan, _, _ = DRYRUN.prepare(config_path, run_id="formal-eta-001", worker_commit=COMMIT)
+            self.assertEqual(plan["full_job_eta_input"], str(eta_path))
+            self.assertEqual(len(plan["full_job_eta_input_sha256"]), 64)
+            eta["plan"]["total_work_units"] = 52449
+            eta_path.write_text(json.dumps(eta), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "differs from source Job"):
+                DRYRUN.prepare(config_path, run_id="formal-eta-001", worker_commit=COMMIT)
+
     def test_plan_creates_concurrent_node_jobs_without_deploying(self):
         plan, jobs, collector = DRYRUN.prepare(CONFIG, run_id="test-run-001", worker_commit=COMMIT)
         self.assertEqual(plan["source_total_work_units"], 960)
@@ -271,6 +290,19 @@ class CrossNodeDryrunTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as raw:
             output = Path(raw)
+            eta_path = output / "eta.json"
+            eta_path.write_text(json.dumps({
+                "schema_version": "pre6g.full-job-eta-input/v1", "work_unit": "training_iteration",
+                "plan": {"total_work_units": 960, "warmup_work_units": 4,
+                         "validation_runs": 0, "checkpoint_writes": 0},
+                "nodes": {item["node"]: {
+                    "dry_run": {"startup_s": 2, "warmup_work_unit_s": 0.2},
+                    "calibration": {"finalization_s": 0.3},
+                    "calibration_source_runs": [{"run_id": "prior-full-job", "completed_naturally": True}],
+                } for item in plan["candidates"]},
+            }), encoding="utf-8")
+            plan["full_job_eta_input"] = str(eta_path)
+            plan["full_job_eta_input_sha256"] = DRYRUN._digest(eta_path)
             for item in plan["candidates"]:
                 node = item["node"]
                 artifacts = output / "artifacts" / node
@@ -290,6 +322,8 @@ class CrossNodeDryrunTests(unittest.TestCase):
             ranking = json.loads((output / "provisional-ranking.json").read_text(encoding="utf-8"))
             self.assertEqual(len(ranking_input["candidates"]), 2)
             self.assertEqual(ranking["selected_node"], plan["candidates"][0]["node"])
+            self.assertEqual(ranking["ranked"][0]["total_job_runtime_status"], "ready")
+            self.assertGreater(ranking["ranked"][0]["predicted_total_job_runtime_s"], 0)
 
 
 if __name__ == "__main__":

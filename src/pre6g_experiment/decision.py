@@ -4,6 +4,8 @@ import copy
 from dataclasses import dataclass
 from typing import Any
 
+from .full_job_eta import estimate_full_job_eta
+
 
 @dataclass(frozen=True)
 class RankedNode:
@@ -11,7 +13,9 @@ class RankedNode:
     work_unit: str | None
     runtime_ms_per_work_unit: float
     energy_j_per_work_unit: float
+    predicted_steady_runtime_s: float | None
     total_runtime_s: float | None
+    full_job_eta: dict[str, Any]
     total_energy_j: float | None
     score: float
 
@@ -197,11 +201,18 @@ def rank_nodes(
         )
         uncertainty_penalty = 1.0 + (1.0 - confidence)
 
-        total_runtime = (
+        steady_runtime = (
             runtime_ms * total_work_units / 1000.0
             if total_work_units is not None
             else None
         )
+        eta = (
+            estimate_full_job_eta(total_work_units, runtime_ms, results.get("full_job_eta"), node)
+            if total_work_units is not None and effective_work_unit == "training_iteration"
+            else {"status": "incomplete", "predicted_total_job_runtime_s": None,
+                  "missing_plan_fields": ["total_work_units"], "missing_phases": []}
+        )
+        total_runtime = eta["predicted_total_job_runtime_s"]
         total_energy = (
             energy_per_work_unit * total_work_units
             if total_work_units is not None
@@ -219,7 +230,9 @@ def rank_nodes(
                 work_unit=effective_work_unit,
                 runtime_ms_per_work_unit=runtime_ms,
                 energy_j_per_work_unit=energy_per_work_unit,
+                predicted_steady_runtime_s=steady_runtime,
                 total_runtime_s=total_runtime,
+                full_job_eta=eta,
                 total_energy_j=total_energy,
                 score=base_score * uncertainty_penalty,
             )

@@ -180,6 +180,26 @@ class WorkTests(unittest.TestCase):
 
 
 class DecisionTests(unittest.TestCase):
+    def test_ready_full_eta_does_not_change_energy_score(self):
+        item = self._node("worker-4090", 100, 300, 50)
+        results = {"nodes": [item]}
+        steady, _ = rank_nodes(results, 10, work_unit="training_iteration")
+        results["full_job_eta"] = {
+            "schema_version": "pre6g.full-job-eta-input/v1",
+            "work_unit": "training_iteration",
+            "plan": {"total_work_units": 10, "warmup_work_units": 2,
+                     "validation_runs": 0, "checkpoint_writes": 0},
+            "nodes": {"worker-4090": {
+                "dry_run": {"startup_s": 2, "warmup_work_unit_s": 0.2},
+                "calibration": {"finalization_s": 0.3},
+                "calibration_source_runs": [{"run_id": "older-complete-001", "completed_naturally": True}],
+            }},
+        }
+        ranked, rejected = rank_nodes(results, 10, work_unit="training_iteration")
+        self.assertFalse(rejected)
+        self.assertEqual(ranked[0].score, steady[0].score)
+        self.assertAlmostEqual(ranked[0].total_runtime_s, 3.5)
+
     def _node(self, name, runtime, power, idle, confidence=1.0):
         gpu_uuid = f"GPU-{name}"
         return {
@@ -245,6 +265,9 @@ class DecisionTests(unittest.TestCase):
         self.assertEqual(ranked[0].node, "b")
         self.assertEqual(ranked[0].work_unit, "training_iteration")
         self.assertAlmostEqual(ranked[0].total_energy_j, 10233.6)
+        self.assertAlmostEqual(ranked[0].predicted_steady_runtime_s, 24.96)
+        self.assertIsNone(ranked[0].total_runtime_s)
+        self.assertEqual(ranked[0].full_job_eta["status"], "incomplete")
 
     def test_idle_power_is_not_required_for_gross_energy_ranking(self):
         item = self._node("worker-5090", 40, 400, 90)

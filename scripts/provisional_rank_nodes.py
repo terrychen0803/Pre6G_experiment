@@ -4,6 +4,12 @@ import argparse
 import json
 from pathlib import Path
 from typing import Any
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(ROOT / "src"))
+from pre6g_experiment.full_job_eta import estimate_full_job_eta  # noqa: E402
 
 
 def rank_candidates(payload: dict[str, Any]) -> dict[str, Any]:
@@ -16,6 +22,7 @@ def rank_candidates(payload: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("at least two candidates are required")
 
     ranked: list[dict[str, Any]] = []
+    eta_input = payload.get("full_job_eta")
 
     for candidate in candidates:
         node = str(candidate["node"])
@@ -33,6 +40,7 @@ def rank_candidates(payload: dict[str, Any]) -> dict[str, Any]:
         runtime_s = runtime_ms * total_work_units / 1000.0
         energy_per_work_unit_j = steady_power_w * runtime_ms / 1000.0
         steady_energy_j = steady_power_w * runtime_s
+        eta = estimate_full_job_eta(total_work_units, runtime_ms, eta_input, node)
 
         ranked.append(
             {
@@ -43,6 +51,9 @@ def rank_candidates(payload: dict[str, Any]) -> dict[str, Any]:
                 "predicted_runtime_ms_per_work_unit": runtime_ms,
                 "total_work_units": total_work_units,
                 "predicted_steady_runtime_s": runtime_s,
+                "predicted_total_job_runtime_s": eta["predicted_total_job_runtime_s"],
+                "total_job_runtime_status": eta["status"],
+                "full_job_eta": eta,
                 "predicted_node_total_steady_power_w": steady_power_w,
                 "energy_j_per_work_unit": energy_per_work_unit_j,
                 "predicted_steady_gross_energy_j": steady_energy_j,
@@ -97,7 +108,7 @@ def rank_candidates(payload: dict[str, Any]) -> dict[str, Any]:
         "limitations": [
             "This path intentionally uses the current model predictions even when power bundles are validation_required.",
             "Power scaler-range warnings are preserved as diagnostics and do not block this ranking test.",
-            "predicted steady runtime is not whole-job runtime.",
+            "predicted steady runtime is not whole-job runtime; full ETA requires an explicit phase plan and measured or prior full-job phase durations.",
             "predicted steady gross energy is not whole-job energy.",
             "The strict production readiness gate in decision.py is not modified.",
         ],

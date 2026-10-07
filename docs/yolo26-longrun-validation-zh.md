@@ -6,6 +6,8 @@
 
 本流程把已完成的 dry-run 預測結果凍結、選出預測節點，再在**所有候選節點**執行同一份完整 YOLO26 訓練，最後比較實際時間與外部 PDU 的整機用電。它用於驗證 runtime / power 排序，不是正式自動調度器，也不能以合成圖像宣稱物件偵測 mAP 準確度。
 
+目前可以額外提供 [分階段完整 trainer ETA](full-job-eta-integration-zh.md)。現有正式資料尚無先前自然完成的節點校準，因此 ETA 會保持 `incomplete`；取得校準後，`validation-result.json` 會另列 `full_job_runtime_error_percent`，與原本穩態 proxy error 分開。
+
 ## 已有與新增的邊界
 
 - `--mode profile`：處理**已取得**的單節點 Nsight SQLite、telemetry 與模型；不建立 K3s Profile Job，也不自動彙整多節點預測。

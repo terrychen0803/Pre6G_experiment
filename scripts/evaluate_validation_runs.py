@@ -108,6 +108,12 @@ def evaluate(plan: dict[str, Any], pods: dict[str, Any], pdu_paths: dict[str, Pa
         actual = intervals[node]
         row = {**predicted, **actual}
         row["runtime_proxy_error_percent"] = 100 * (predicted["predicted_steady_runtime_s"] - actual["elapsed_s"]) / actual["elapsed_s"]
+        eta = predicted.get("predicted_total_job_runtime_s")
+        row["full_job_runtime_error_percent"] = (
+            100 * (eta - actual["elapsed_s"]) / actual["elapsed_s"]
+            if predicted.get("total_job_runtime_status") == "ready" and eta is not None and actual["succeeded"]
+            else None
+        )
         if node in pdu_paths:
             row["pdu"] = pdu_energy(
                 pdu_paths[node],
@@ -135,7 +141,7 @@ def evaluate(plan: dict[str, Any], pods: dict[str, Any], pdu_paths: dict[str, Pa
         "nodes": rows,
         "limitations": [
             "PDU values are treated as five-minute interval-average whole-node watts; boundary intervals are overlap-weighted.",
-            "Predictions cover steady training; observations cover the full trainer container, so proxy errors are not isolated model accuracy.",
+            "Steady runtime proxy errors compare steady training against the full trainer container. Full-job errors are reported separately only for ready ETA and successful runs.",
             "Synthetic data supports workflow and runtime/energy validation, not object-detection accuracy claims.",
             "Background node load and GPU sharing may affect gross PDU energy; record occupancy and idle baseline separately.",
         ],

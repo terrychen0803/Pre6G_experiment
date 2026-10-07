@@ -6,6 +6,8 @@
 
 YOLO26 跨節點 30–50 分鐘訓練驗證的準備、部署命令與 PDU 五分鐘資料評估，見 [長跑驗證使用說明](docs/yolo26-longrun-validation-zh.md)。目前部署需由操作者在有 K3s 權限的環境手動執行，整合程式不會自行啟動訓練。
 
+完整訓練時間的可選分階段 ETA 介面、校準輸入與驗證邊界見 [分階段估時接入](docs/full-job-eta-integration-zh.md)。
+
 排名前的「同時部署所有候選節點 dry-run → 回收產物 → master 預測與排名」已有明確執行的 YOLO26 協調模式；預設只產生計畫，詳見 [跨節點 dry-run 使用說明](docs/cross-node-dryrun-zh.md)。
 
 在 k3s 上執行「Generic workload intake → marker-free dry-run profiling → runtime / power prediction → energy-aware placement → production ground truth」的整合與驗證平台。
@@ -459,7 +461,7 @@ predicted runtime per training_iteration
 predicted_total_job_runtime_s = null
 ~~~
 
-會繼續保留。Whole-job non-steady overhead model 延後到完整流程跑通後再加入，避免把尚未驗證的 overhead 混入目前 runtime predictor。
+在 semantic-runtime 層會繼續保留。跨節點 research ranking 另提供**可選**分階段完整 ETA；只有明示排程及同節點實測／先前完整 Job 校準齊全才輸出數值，否則維持 `incomplete`。見 [分階段估時接入](docs/full-job-eta-integration-zh.md)。
 
 ## 正確性原則
 

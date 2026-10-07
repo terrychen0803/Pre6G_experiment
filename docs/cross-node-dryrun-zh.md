@@ -6,6 +6,8 @@
 
 `scripts/run_experiment_pipeline.py --mode cross-node` 將原本人工銜接的階段串起來。它適用於目前已驗證的 YOLO26 120 秒 profile fixture；尚不是通用 Kubernetes controller。示範設定在 `examples/yolo26/cross-node-dryrun.yaml`，分別綁定 RTX4090、RTX5090 的 Profile Job 模板、runtime model 和 node-bound power bundle。
 
+若已有先前完整 Job 的階段校準，可在 config 加 `full_job_eta_input`，讓排名同時輸出完整 trainer ETA；缺資料時輸出 `incomplete`，不影響現有穩態能耗排名。輸入格式與限制見 [分階段估時接入](full-job-eta-integration-zh.md)。
+
 Collector 已固定到 control-side master。示範設定使用 `collector_node: icclz2`，產生的 `collector-pod.yaml` 會帶入 `nodeSelector: {kubernetes.io/hostname: icclz2}`，因此 collector 不會再被 Kubernetes 任意排到 GX10、RTX3090 或其他非本流程節點。若 master 的 Kubernetes node name 不是 `icclz2`，必須先把 `collector_node` 改成 `kubectl get nodes` 顯示的實際 master hostname；不要為了 collector 額外把 GX10 納入候選節點。
 
 流程：
