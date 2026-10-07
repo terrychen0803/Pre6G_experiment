@@ -217,6 +217,14 @@ def prepare(config_path: Path, *, run_id: str, worker_commit: str) -> tuple[dict
     long_detector_profile = config.get("long_detector_profile")
     if long_detector_profile not in (None, "yolo-v2-long"):
         raise ValueError("unsupported long_detector_profile")
+    if long_detector_profile:
+        for relative in ("scripts/evaluate_long_trace_periods.py", "src/pre6g_experiment/long_trace_detector.py"):
+            present = subprocess.run(
+                ["git", "cat-file", "-e", f"{worker_commit}:{relative}"],
+                cwd=ROOT, capture_output=True, check=False,
+            )
+            if present.returncode:
+                raise ValueError(f"worker_commit lacks {long_detector_profile} file: {relative}")
     if experiment_stage not in {"functional-validation", "formal-experiment"}:
         raise ValueError("experiment_stage must be functional-validation or formal-experiment")
     if not test_purpose:

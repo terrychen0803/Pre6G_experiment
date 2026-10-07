@@ -20,7 +20,7 @@ DRYRUN = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(DRYRUN)
 CONFIG = ROOT / "examples/yolo26/cross-node-dryrun.yaml"
 FORMAL_CONFIG = ROOT / "examples/yolo26/formal-cross-node-dryrun.yaml"
-COMMIT = "767756535d215293f7c6d96b65ae0c07134248c0"
+COMMIT = "434200b4b0e0006c4482d387161ce5eff41d41c4"
 
 
 class CrossNodeDryrunTests(unittest.TestCase):
@@ -88,6 +88,13 @@ class CrossNodeDryrunTests(unittest.TestCase):
             self.assertEqual(
                 job["metadata"]["annotations"]["pre6g.io/formal-workload-revision"],
                 "v2-training-only",
+            )
+
+    def test_formal_plan_rejects_worker_commit_without_new_detector(self):
+        with self.assertRaisesRegex(ValueError, "worker_commit lacks yolo-v2-long"):
+            DRYRUN.prepare(
+                FORMAL_CONFIG, run_id="formal-old-worker-001",
+                worker_commit="8113e7ab197b83b3956ef10f3da993a694e945a8",
             )
 
     def test_formal_profile_rejects_validation_semantic_mismatch(self):
