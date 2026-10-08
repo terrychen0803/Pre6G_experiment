@@ -26,23 +26,16 @@
       <div class="preview-bar"><span><strong>客戶使用情境</strong> · 任務、負載與進度為示意，未連接運算服務</span><a href="https://github.com/terrychen0803/Pre6G_experiment/blob/main/dashboard/README.md">展示說明 ↗</a></div>
       <div class="page-heading"><div><p class="eyebrow">我的任務 <span aria-hidden="true">/</span> CV-2026-014</p><h1>Pre6G 智慧運算平台</h1><p class="subheading">提交運算任務後，在這裡查看分析進度、節點選擇與執行狀態。</p></div><button class="button muted-button" type="button" disabled>＋ 新增任務（展示）</button></div>
 
-      <div class="scenario-bar"><span class="scenario-label">切換展示情境</span><div class="scenario-buttons" role="group" aria-label="任務展示情境">
-        <button type="button" data-scenario="profiling" aria-pressed="false">分析中</button>
-        <button type="button" data-scenario="selected" aria-pressed="true">已選點</button>
-        <button type="button" data-scenario="running" aria-pressed="false">執行中</button>
-        <button type="button" data-scenario="completed" aria-pressed="false">已完成</button>
-        <button type="button" data-scenario="blocked" aria-pressed="false">待確認</button>
-      </div></div>
-
       <article class="task-card">
         <div class="task-heading"><div class="task-identity"><span class="task-monogram" aria-hidden="true">CV</span><div><p class="eyebrow">電腦視覺 · 模型訓練</p><h2>產線瑕疵辨識模型訓練</h2><p class="task-id">CV-2026-014 · 陳小姐提交 · 今日 14:30</p></div></div><span class="badge green" id="task-status">已選定節點</span></div>
         <dl class="task-facts"><div><dt>模型 / 框架</dt><dd>YOLO26 / PyTorch</dd></div><div><dt>資料集</dt><dd>瑕疵影像 · 512 張</dd></div><div><dt>訓練設定</dt><dd>30 epochs · batch 16</dd></div><div><dt>資源需求</dt><dd>1 份共享 GPU 配額</dd></div><div><dt>配置偏好</dt><dd><span class="preference">節能優先</span></dd></div></dl>
-        <ol class="journey" aria-label="任務生命週期">
-          <li data-step="0"><span class="step-circle">1</span><span><strong>接收任務</strong><small>確認需求與資料</small></span></li>
-          <li data-step="1"><span class="step-circle">2</span><span><strong>分析候選節點</strong><small>預估時間與能耗</small></span></li>
-          <li data-step="2"><span class="step-circle">3</span><span><strong>選定節點</strong><small>依任務偏好配置</small></span></li>
-          <li data-step="3"><span class="step-circle">4</span><span><strong>執行訓練</strong><small>追蹤任務進度</small></span></li>
-          <li data-step="4"><span class="step-circle">5</span><span><strong>任務完成</strong><small>查看成果與紀錄</small></span></li>
+        <p class="journey-hint">點選流程階段切換展示情境；若預測結果未通過檢查，可查看「待確認」分支。</p>
+        <ol class="journey" aria-label="任務生命週期與展示情境">
+          <li data-step="0"><button class="journey-stage" type="button" data-scenario="received" aria-pressed="false"><span class="step-circle">1</span><span><strong>接收任務</strong><small>確認需求與資料</small></span></button></li>
+          <li data-step="1"><button class="journey-stage" type="button" data-scenario="profiling" aria-pressed="false"><span class="step-circle">2</span><span><strong>分析候選節點</strong><small>預估時間與能耗</small></span></button></li>
+          <li data-step="2"><button class="journey-stage" type="button" data-scenario="selected" aria-pressed="true"><span class="step-circle">3</span><span><strong>選定節點</strong><small>依任務偏好配置</small></span></button><button class="journey-branch" type="button" data-scenario="blocked" aria-pressed="false" aria-label="待確認：預測結果未通過檢查">待確認</button></li>
+          <li data-step="3"><button class="journey-stage" type="button" data-scenario="running" aria-pressed="false"><span class="step-circle">4</span><span><strong>執行訓練</strong><small>追蹤任務進度</small></span></button></li>
+          <li data-step="4"><button class="journey-stage" type="button" data-scenario="completed" aria-pressed="false"><span class="step-circle">5</span><span><strong>任務完成</strong><small>查看成果與紀錄</small></span></button></li>
         </ol>
       </article>
 

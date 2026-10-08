@@ -1,5 +1,16 @@
 /* Local presentation only: no requests, timers, job submission or telemetry. */
 const scenarios = {
+  received: {
+    label: '接收任務', status: '任務已接收', tone: 'neutral', step: 0,
+    kicker: '任務準備', badge: '等待節點分析', title: '已收到你的訓練任務',
+    description: '平台已確認任務需求與資料，接下來會分析可用的 GPU 節點。',
+    node: '尚未選定', nodeDetail: '等待候選節點分析', machineState: '尚未配置', predictions: false,
+    executionTitle: '準備分析候選節點', executionDescription: '任務已接收；節點分析與模型訓練尚未開始。',
+    progressTag: '等待分析', progressLabel: '節點分析進度', progressValue: '0%', progress: 0,
+    elapsed: '分析尚未開始', remaining: '訓練尚未開始', choice: '待分析', otherChoice: '待分析',
+    gpu: 28, memory: 34, jobs: 1, loadState: '未配置本任務',
+    events: [['14:30:00', '任務已接收', '已確認訓練設定與資料需求。']]
+  },
   profiling: {
     label: '分析中', status: '正在分析候選節點', tone: 'neutral', step: 1,
     kicker: '節點分析', badge: '分析 2 個候選節點', title: '正在為你的任務尋找合適的節點',
@@ -78,7 +89,10 @@ function showScenario(key) {
     const step = Number(item.dataset.step);
     item.className = step < state.step ? 'done' : step === state.step ? 'current' : '';
     if (key === 'blocked' && step === state.step) item.classList.add('attention');
-    if (step === state.step) item.setAttribute('aria-current', 'step'); else item.removeAttribute('aria-current');
+    item.querySelectorAll('[data-scenario]').forEach(button => {
+      if (button.dataset.scenario === key) button.setAttribute('aria-current', 'step');
+      else button.removeAttribute('aria-current');
+    });
     item.querySelector('.step-circle').textContent = step < state.step || (key === 'completed' && step === 4) ? '✓' : key === 'blocked' && step === 2 ? '!' : String(step + 1);
   });
   const progress = document.getElementById('task-progress');
